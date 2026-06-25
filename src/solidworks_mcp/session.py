@@ -575,6 +575,80 @@ class SolidWorksSession:
             raise SolidWorksError("Shell verwijderde al het materiaal; is de wanddikte te groot?")
         return {"ok": True, "open_face": opened, "rebuild_ok": rebuilt_ok, "mass_properties": props}
 
+    def _first_edge_along(self, body, direction):
+        """First straight edge parallel to `direction`; returns (p1, p2) in metres."""
+        edges = body.GetEdges()
+        if not edges:
+            return None, None
+        if not isinstance(edges, (list, tuple)):
+            edges = [edges]
+        for edge_dispatch in edges:
+            edge = binding.wrap(edge_dispatch, self._mod.IEdge)
+            curve = binding.wrap(edge.GetCurve(), self._mod.ICurve)
+            if not (curve is not None and curve.IsLine()):
+                continue
+            start, end = edge.GetStartVertex(), edge.GetEndVertex()
+            if start is None or end is None:
+                continue
+            p1 = binding.wrap(start, self._mod.IVertex).GetPoint()
+            p2 = binding.wrap(end, self._mod.IVertex).GetPoint()
+            dx, dy, dz = p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2]
+            length = (dx * dx + dy * dy + dz * dz) ** 0.5
+            if length > 1e-9 and abs(dx * direction[0] + dy * direction[1] + dz * direction[2]) / length > 0.999:
+                return p1, p2
+        return None, None
+
+    def _last_feature_name(self) -> str:
+        """Name of the most recently added feature (the default pattern seed)."""
+        feat = binding.wrap(self._model.FirstFeature(), self._mod.IFeature)
+        last = None
+        while feat is not None:
+            last = feat
+            feat = binding.wrap(feat.GetNextFeature(), self._mod.IFeature)
+        if last is None:
+            raise SolidWorksError("Geen feature gevonden om te patronen.")
+        return last.Name
+
+    def add_linear_pattern(self, count: int, spacing_mm: float, direction: str = "+x",
+                           feature_name: str | None = None) -> dict:
+        """Repeat a feature `count` times, `spacing_mm` apart, along a direction.
+
+        direction: '+x'/'-x'/'+y'/... (a body edge parallel to that axis sets the
+        direction; flip is chosen so the pattern runs the requested way).
+        feature_name: the feature to repeat (e.g. 'Hole'); defaults to the most
+        recently added feature. Selection marks: direction edge = 1, seed = 4.
+        """
+        model = self._require_model()
+        if count < 2:
+            raise SolidWorksError(f"count moet >= 2 zijn (kreeg {count}).")
+        if spacing_mm <= 0:
+            raise SolidWorksError(f"spacing moet > 0 zijn (kreeg {spacing_mm}).")
+
+        dvec = self._parse_direction(direction)
+        body = self._solid_body()
+        p1, p2 = self._first_edge_along(body, dvec)
+        if p1 is None:
+            raise SolidWorksError(f"Geen rechte rand evenwijdig aan {direction} gevonden.")
+        mid = ((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2, (p1[2] + p2[2]) / 2)
+        along = (p2[0] - p1[0]) * dvec[0] + (p2[1] - p1[1]) * dvec[1] + (p2[2] - p1[2]) * dvec[2]
+        flip = along < 0  # pattern follows the edge's p1->p2 dir; flip to match `direction`
+
+        seed = feature_name or self._last_feature_name()
+        ext = binding.wrap(model.Extension, self._mod.IModelDocExtension)
+        model.ClearSelection2(True)
+        if not ext.SelectByID2("", "EDGE", mid[0], mid[1], mid[2], False, 1, None, 0):
+            raise SolidWorksError("Kon de richting-rand niet selecteren.")
+        if not ext.SelectByID2(seed, "BODYFEATURE", 0.0, 0.0, 0.0, True, 4, None, 0):
+            raise SolidWorksError(f"Kon de seed-feature '{seed}' niet selecteren.")
+
+        feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
+        pattern = feat_mgr.FeatureLinearPattern(count, mm_to_m(spacing_mm), 1, 0.0,
+                                                flip, False, "", "")
+        if pattern is None:
+            raise SolidWorksError("FeatureLinearPattern mislukte (None). Passen alle instances op het part?")
+        return self._finish_feature(pattern, "LinearPattern", instances=count,
+                                    seed=seed, direction=direction)
+
     # --- parametric edit ------------------------------------------------------
 
     def set_dimension(self, dimension_name: str, value_mm: float) -> dict:

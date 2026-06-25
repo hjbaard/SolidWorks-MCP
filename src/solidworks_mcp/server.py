@@ -112,6 +112,17 @@ async def add_chamfer(distance_mm: float, edges: str = "all", name: str = "Chamf
 
 
 @mcp.tool()
+async def add_linear_pattern(count: int, spacing_mm: float, direction: str = "+x",
+                             feature_name: str | None = None) -> dict:
+    """Repeat a feature `count` times, `spacing_mm` apart, along a direction.
+
+    direction: "+x"/"-x"/"+y"/... feature_name: the feature to repeat (e.g.
+    "Hole"); defaults to the most recently added feature. Returns mass properties.
+    """
+    return await _call(_session.add_linear_pattern, count, spacing_mm, direction, feature_name)
+
+
+@mcp.tool()
 async def add_shell(thickness_mm: float, open_face: str = "+z") -> dict:
     """Hollow the current part to a wall of thickness_mm, opening one face.
 
