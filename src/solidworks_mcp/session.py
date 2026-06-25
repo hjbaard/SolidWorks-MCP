@@ -18,10 +18,8 @@ from .constants import (
     EXPORT_FORMATS,
     SW_BODY_SOLID,
     SW_CHAMFER_ANGLE_DISTANCE,
-    SW_CHAMFER_OPT_TANGENT_PROPAGATION,
     SW_END_COND_BLIND,
     SW_END_COND_THROUGH_ALL,
-    SW_FILLET_OPT_PROPAGATE,
     SW_FILLET_OPT_UNIFORM_RADIUS,
     SW_FILLET_TYPE_SIMPLE,
     SW_PREF_DEFAULT_TEMPLATE_PART,
@@ -147,11 +145,12 @@ class SolidWorksSession:
         return binding.wrap(bodies[0], self._mod.IBody2)
 
     def _planar_face_by_normal(self, body, target):
-        """Return the face whose outward normal best matches `target` (unit vector).
+        """Return the PLANAR face whose outward normal best matches `target`.
 
         The reusable selection primitive: e.g. target (0,0,1) is the top face.
-        Normals come from IFace2.Normal (outward for solid faces). Returns the
-        early-bound IFace2, or None if nothing faces that way closely enough.
+        Non-planar faces (a cylinder left by a hole, a fillet surface) are skipped
+        so the result is always a valid sketch base. Returns the early-bound
+        IFace2 facing closest to `target`, or None if no planar face faces it.
         """
         faces = body.GetFaces()
         if not faces:
@@ -160,9 +159,12 @@ class SolidWorksSession:
             faces = [faces]
         tx, ty, tz = target
         best = None
-        best_dot = 0.99  # require a near-exact match (a face actually facing `target`)
+        best_dot = 0.999  # floor: must face essentially toward `target`; closest wins
         for face_dispatch in faces:
             face = binding.wrap(face_dispatch, self._mod.IFace2)
+            surface = binding.wrap(face.GetSurface(), self._mod.ISurface)
+            if surface is None or not surface.IsPlane():
+                continue  # only sketch on flat faces
             nx, ny, nz = face.Normal
             dot = nx * tx + ny * ty + nz * tz
             if dot > best_dot:
@@ -171,12 +173,16 @@ class SolidWorksSession:
         return best
 
     def _edge_parallel_to(self, edge_dispatch, target) -> bool:
-        """True if a straight edge runs parallel to unit vector `target`.
+        """True if a STRAIGHT edge runs parallel to unit vector `target`.
 
-        Uses the edge's start/end vertices; a curved or closed edge (e.g. the
-        circle of a hole) has no start/end vertex and never matches an axis.
+        Requires the edge's underlying curve to be a line, so arcs left by a
+        fillet/chamfer (open arcs that DO have two vertices) and a hole's circle
+        are never matched, then compares the line direction against `target`.
         """
         edge = binding.wrap(edge_dispatch, self._mod.IEdge)
+        curve = binding.wrap(edge.GetCurve(), self._mod.ICurve)
+        if curve is None or not curve.IsLine():
+            return False
         start = edge.GetStartVertex()
         end = edge.GetEndVertex()
         if start is None or end is None:
@@ -188,7 +194,7 @@ class SolidWorksSession:
         if length < 1e-9:
             return False
         dot = abs(dx * target[0] + dy * target[1] + dz * target[2]) / length
-        return dot > 0.99
+        return dot > 0.999  # ~2.6 degrees
 
     _EDGE_AXES = {"x": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "z": (0.0, 0.0, 1.0)}
 
@@ -217,6 +223,25 @@ class SolidWorksSession:
             if binding.wrap(edge_dispatch, self._mod.IEntity).Select4(True, None):
                 count += 1
         return count
+
+    def _finish_feature(self, feature, name: str, **extra) -> dict:
+        """Name a freshly created feature, rebuild, and build the result dict.
+
+        Shared tail for the feature builders. `rebuild_ok` mirrors set_dimension
+        so the agent can tell when a feature was created but the rebuild failed.
+        """
+        try:
+            feature.Name = name
+        except pythoncom.com_error:
+            pass  # naming is best-effort; we read the real name back below
+        rebuilt_ok = bool(self._model.ForceRebuild3(False))
+        return {
+            "ok": True,
+            "feature": feature.Name,
+            "rebuild_ok": rebuilt_ok,
+            **extra,
+            "mass_properties": self.get_mass_properties()["mass_properties"],
+        }
 
     def add_box(self, width_mm: float, height_mm: float, depth_mm: float,
                 name: str = "BlockExtrude") -> dict:
@@ -267,18 +292,9 @@ class SolidWorksSession:
         )
         if extrude is None:
             raise SolidWorksError("FeatureExtrusion3 mislukte (None). Is de sketch geldig?")
-        try:
-            extrude.Name = name
-        except pythoncom.com_error:
-            pass
-        feature_name = extrude.Name
-        model.ForceRebuild3(False)
-        return {
-            "ok": True,
-            "feature": feature_name,
-            "depth_dimension": f"D1@{feature_name}",
-            "mass_properties": self.get_mass_properties()["mass_properties"],
-        }
+        result = self._finish_feature(extrude, name)
+        result["depth_dimension"] = f"D1@{result['feature']}"
+        return result
 
     def add_hole(self, diameter_mm: float, x_mm: float, y_mm: float,
                  name: str = "Hole") -> dict:
@@ -339,16 +355,7 @@ class SolidWorksSession:
             raise SolidWorksError(
                 "FeatureCut4 mislukte (None). Ligt (x, y) binnen het materiaal van het part?"
             )
-        try:
-            cut.Name = name
-        except pythoncom.com_error:
-            pass
-        model.ForceRebuild3(False)
-        return {
-            "ok": True,
-            "feature": cut.Name,
-            "mass_properties": self.get_mass_properties()["mass_properties"],
-        }
+        return self._finish_feature(cut, name)
 
     def add_fillet(self, radius_mm: float, edges: str = "all", name: str = "Fillet") -> dict:
         """Round edges of the part's solid body with one constant radius.
@@ -369,7 +376,7 @@ class SolidWorksSession:
 
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
         fillet = feat_mgr.FeatureFillet3(
-            SW_FILLET_OPT_PROPAGATE | SW_FILLET_OPT_UNIFORM_RADIUS,  # Options
+            SW_FILLET_OPT_UNIFORM_RADIUS,      # Options (uniform R1; no propagation)
             mm_to_m(radius_mm),                # R1 (uniform radius)
             0.0, 0.0,                          # R2, Rho
             SW_FILLET_TYPE_SIMPLE,             # Ftyp
@@ -381,17 +388,7 @@ class SolidWorksSession:
             raise SolidWorksError(
                 "FeatureFillet3 mislukte (None). Is de radius te groot voor de geometrie?"
             )
-        try:
-            fillet.Name = name
-        except pythoncom.com_error:
-            pass
-        model.ForceRebuild3(False)
-        return {
-            "ok": True,
-            "feature": fillet.Name,
-            "edges_filleted": edge_count,
-            "mass_properties": self.get_mass_properties()["mass_properties"],
-        }
+        return self._finish_feature(fillet, name, edges_filleted=edge_count)
 
     def add_chamfer(self, distance_mm: float, edges: str = "all", name: str = "Chamfer") -> dict:
         """Chamfer edges of the part's solid body at 45 degrees (equal distance).
@@ -411,7 +408,7 @@ class SolidWorksSession:
 
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
         chamfer = feat_mgr.InsertFeatureChamfer(
-            SW_CHAMFER_OPT_TANGENT_PROPAGATION,  # Options
+            0,                                   # Options (no tangent propagation)
             SW_CHAMFER_ANGLE_DISTANCE,           # ChamferType (distance + angle)
             mm_to_m(distance_mm),                # Width (the setback distance)
             deg_to_rad(45.0),                    # Angle (45 deg -> symmetric chamfer)
@@ -422,17 +419,7 @@ class SolidWorksSession:
             raise SolidWorksError(
                 "InsertFeatureChamfer mislukte (None). Is de afstand te groot voor de geometrie?"
             )
-        try:
-            chamfer.Name = name
-        except pythoncom.com_error:
-            pass
-        model.ForceRebuild3(False)
-        return {
-            "ok": True,
-            "feature": chamfer.Name,
-            "edges_chamfered": edge_count,
-            "mass_properties": self.get_mass_properties()["mass_properties"],
-        }
+        return self._finish_feature(chamfer, name, edges_chamfered=edge_count)
 
     # --- parametric edit ------------------------------------------------------
 

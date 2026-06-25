@@ -80,6 +80,20 @@ circle have no vertices and never match). Verified: a 40x20x10 box has exactly 4
 edges per axis; r=2 fillet removes 137/69/34 mm³ for x/y/z (proportional to the
 40/20/10 lengths). Visually confirmed only the depth edges round for 'z'.
 
+### Hardening (M4 review, 2026-06-25)
+Adversarial review of the M4 code (8 findings confirmed). Applied:
+- **Off-center hole verified**: a hole at (10,6) lands at COM (20.670, 10.268) =
+  the prediction, confirming (x,y) really use add_box coordinates (the centred
+  test was symmetric and couldn't catch a mirrored frame).
+- **Planar-face guard** in `_planar_face_by_normal` (`ISurface.IsPlane`) and
+  **line-edge guard** in `_edge_parallel_to` (`ICurve.IsLine`) — so a cylinder
+  left by a hole or an arc left by a fillet is never picked as a sketch base /
+  axis edge on composed parts.
+- Dropped tangent **propagation** on fillet/chamfer so `edges_filleted/chamfered`
+  equals exactly what was selected; tightened the direction tolerance to ~2.6°.
+- `_finish_feature` helper (DRY across the 4 builders) now also returns
+  `rebuild_ok`, mirroring set_dimension. Full M-suite + MCP test still green.
+
 ## Key API findings (this build)
 
 These were read from the installed typelib (`scripts/introspect_api.py`), not
