@@ -135,15 +135,26 @@ guessed — and several differ from common web docs:
 - Plane selection by name (`"Front Plane"`) is language-dependent; we walk the
   feature tree for `GetTypeName2() == "RefPlane"` instead.
 
+### M4 — Linear pattern 🚧
+`scripts/m4_pattern.py` + `add_linear_pattern`: repeat a feature N times along
++x/-x/+y/... via FeatureLinearPattern. Box + hole -> 3 holes = 6492.036 mm³.
+Selection marks (found empirically): **direction edge = mark 1, seed feature =
+mark 4** (via SelectByID2 with coords/name). The pattern follows the edge's
+p1->p2 direction; we flip it to match the requested axis. seed defaults to the
+last feature added (tree walk).
+
 ## Next
 
-- Patterns (linear/circular) and mirror — repeat features (e.g. a bolt circle of
-  holes); high value for real parts.
-- General revolve: arbitrary (radius, z) profiles reusing the revolve plumbing;
-  generic sketch primitives (line/arc).
-- Choose the hole face (beyond +Z); index-based face selection for shell/hole.
-- Equations (`IEquationMgr`).
-- Richer rebuild-error reporting (feature-level error/warning enumeration).
+- **Circular pattern + mirror** need a centre axis / mirror plane. The default
+  ref planes/axes sit at the origin, but add_box places parts corner-at-origin,
+  so they don't line up — needs reference-axis/plane creation (or centred parts).
+  A real next chunk, not a quick win.
+- **Holes on any face** (beyond +Z): the face-sketch 2D frame differs per face,
+  so (x,y) needs a model->sketch transform. Prerequisite for bolt circles.
+- General revolve: arbitrary (radius, z) profiles; generic sketch primitives.
+- Equations (`IEquationMgr`); richer rebuild-error reporting.
+- Worth doing soon: an end-to-end **agentic-loop demo** on a non-trivial spec to
+  validate the 19-tool set as a whole.
 
 ## Notes
 
