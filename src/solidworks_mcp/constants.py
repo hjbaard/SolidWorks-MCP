@@ -14,6 +14,15 @@ SW_END_COND_THROUGH_ALL = 1
 # swBodyType_e
 SW_BODY_SOLID = 0
 
+# swFeatureFilletType_e
+SW_FILLET_TYPE_SIMPLE = 0
+
+# swFeatureFilletOptions_e (bitmask). UNIFORM_RADIUS makes the fillet use the
+# single R1 radius for all edges; without it the API expects a per-edge Radii
+# array. PROPAGATE extends the fillet across tangent edges.
+SW_FILLET_OPT_PROPAGATE = 1
+SW_FILLET_OPT_UNIFORM_RADIUS = 2
+
 # swStartConditions_e
 SW_START_SKETCH_PLANE = 0
 

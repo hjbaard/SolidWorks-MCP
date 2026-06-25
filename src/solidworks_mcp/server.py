@@ -69,6 +69,15 @@ async def add_hole(diameter_mm: float, x_mm: float, y_mm: float, name: str = "Ho
 
 
 @mcp.tool()
+async def add_fillet(radius_mm: float, name: str = "Fillet") -> dict:
+    """Round all edges of the current part with one constant radius (mm).
+
+    Returns the number of edges filleted and the resulting mass properties.
+    """
+    return await _call(_session.add_fillet, radius_mm, name)
+
+
+@mcp.tool()
 async def set_dimension(dimension_name: str, value_mm: float) -> dict:
     """Set a named driving dimension (e.g. 'D1@BlockExtrude') in mm, rebuild, and remeasure.
 

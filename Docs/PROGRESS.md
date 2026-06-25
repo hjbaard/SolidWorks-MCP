@@ -56,6 +56,15 @@ coincident with a face fails for *every* direction/end-condition; sketching on
 the actual selected face makes the cut unambiguous. The hole runs along the
 add_box depth axis (the +Z profile face), i.e. through the plate thickness.
 
+`scripts/m4_fillet.py` + `add_fillet`: rounds all edges with a constant radius
+via `_select_all_edges` (extends the selection layer to edges) + FeatureFillet3.
+40x20x10 block, r=2 on all 12 edges -> 7770.36 mm³ (matches the hand estimate
+~7760; difference is the corner patches). Verified visually.
+
+Fillet lesson: FeatureFillet3 needs `swFeatureFilletUniformRadius` in Options to
+use the single R1 radius; without it the API expects a per-edge Radii array and
+returns None.
+
 ## Key API findings (this build)
 
 These were read from the installed typelib (`scripts/introspect_api.py`), not
@@ -76,8 +85,10 @@ guessed — and several differ from common web docs:
 
 ## Next
 
-- **Fillet / chamfer on selected edges** — extends the selection layer to edges
-  (analogous to `_planar_face_by_normal` but for edges).
+- **Chamfer** (`InsertFeatureChamfer`) — reuses `_select_all_edges`; near-free
+  after fillet.
+- **Selective edge/face picking** — fillet/hole currently act on all edges / the
+  +Z face; add criteria (by direction, by feature) for user-directed selection.
 - Revolve (`FeatureRevolve2`); generic sketch primitives (line/arc).
 - Equations (`IEquationMgr`).
 - Richer rebuild-error reporting (feature-level error/warning enumeration).

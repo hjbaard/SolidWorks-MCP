@@ -19,6 +19,9 @@ from .constants import (
     SW_BODY_SOLID,
     SW_END_COND_BLIND,
     SW_END_COND_THROUGH_ALL,
+    SW_FILLET_OPT_PROPAGATE,
+    SW_FILLET_OPT_UNIFORM_RADIUS,
+    SW_FILLET_TYPE_SIMPLE,
     SW_PREF_DEFAULT_TEMPLATE_PART,
     SW_SAVE_AS_CURRENT_VERSION,
     SW_SAVE_AS_OPTIONS_SILENT,
@@ -165,6 +168,20 @@ class SolidWorksSession:
                 best = face
         return best
 
+    def _select_all_edges(self, body) -> int:
+        """Append-select every edge of `body`; return how many were selected."""
+        edges = body.GetEdges()
+        if not edges:
+            return 0
+        if not isinstance(edges, (list, tuple)):
+            edges = [edges]
+        self._model.ClearSelection2(True)
+        count = 0
+        for edge_dispatch in edges:
+            if binding.wrap(edge_dispatch, self._mod.IEntity).Select4(True, None):
+                count += 1
+        return count
+
     def add_box(self, width_mm: float, height_mm: float, depth_mm: float,
                 name: str = "BlockExtrude") -> dict:
         """Sketch a rectangle on the first plane and extrude it; returns mass props.
@@ -294,6 +311,48 @@ class SolidWorksSession:
         return {
             "ok": True,
             "feature": cut.Name,
+            "mass_properties": self.get_mass_properties()["mass_properties"],
+        }
+
+    def add_fillet(self, radius_mm: float, name: str = "Fillet") -> dict:
+        """Round ALL edges of the part's solid body with one constant radius.
+
+        Uses the reusable edge selection (_select_all_edges) + FeatureFillet3 with
+        a uniform radius. Returns how many edges were filleted and the resulting
+        mass properties (volume drops as convex edges are rounded off).
+        """
+        model = self._require_model()
+        if radius_mm <= 0:
+            raise SolidWorksError(f"radius moet > 0 zijn (kreeg {radius_mm}).")
+
+        body = self._solid_body()
+        edge_count = self._select_all_edges(body)
+        if edge_count == 0:
+            raise SolidWorksError("Geen randen gevonden om af te ronden.")
+
+        feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
+        fillet = feat_mgr.FeatureFillet3(
+            SW_FILLET_OPT_PROPAGATE | SW_FILLET_OPT_UNIFORM_RADIUS,  # Options
+            mm_to_m(radius_mm),                # R1 (uniform radius)
+            0.0, 0.0,                          # R2, Rho
+            SW_FILLET_TYPE_SIMPLE,             # Ftyp
+            0, 0,                              # OverflowType, ConicRhoType
+            None, None, None, None,            # Radii, Dist2Arr, RhoArr, SetBackDistances
+            None, None, None,                  # PointRadius/Dist2/Rho arrays
+        )
+        if fillet is None:
+            raise SolidWorksError(
+                "FeatureFillet3 mislukte (None). Is de radius te groot voor de geometrie?"
+            )
+        try:
+            fillet.Name = name
+        except pythoncom.com_error:
+            pass
+        model.ForceRebuild3(False)
+        return {
+            "ok": True,
+            "feature": fillet.Name,
+            "edges_filleted": edge_count,
             "mass_properties": self.get_mass_properties()["mass_properties"],
         }
 

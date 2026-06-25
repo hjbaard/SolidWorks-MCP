@@ -90,6 +90,14 @@ async def run() -> int:
             check("volume na gat", approx(vol_hole, expected_hole),
                   f"{vol_hole:.1f} mm^3 (verwacht {expected_hole:.1f})")
 
+            print("[4c] add_fillet r2 op alle randen")
+            r = payload(await session.call_tool("add_fillet", {"radius_mm": 2}))
+            vol_fil = r.get("mass_properties", {}).get("volume_mm3", 0)
+            check("fillet gebouwd", r.get("ok") is True and r.get("edges_filleted", 0) > 0,
+                  f"{r.get('edges_filleted')} randen, {vol_fil:.1f} mm^3")
+            check("materiaal verwijderd door fillet", 0 < vol_fil < vol_hole,
+                  f"{vol_fil:.1f} < {vol_hole:.1f}")
+
             print("[5] get_bounding_box")
             r = payload(await session.call_tool("get_bounding_box", {}))
             size = r.get("bounding_box_mm", {}).get("size_mm")

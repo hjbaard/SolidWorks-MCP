@@ -18,7 +18,7 @@ Proven end-to-end against **SOLIDWORKS 2026 (3DEXPERIENCE R2026x)**:
 | M1 | new part → sketch rectangle → extrude → mass properties (volume matches hand calc) | ✅ |
 | M2 | change a named dimension → rebuild → volume changes predictably | ✅ |
 | M3 | full agent loop via the MCP server: build → measure → correct → export STEP/STL + screenshot | ✅ |
-| M4 | cut-extrude hole on a selected face (Ø8 through-hole) + reusable face-by-normal selection | 🚧 started |
+| M4 | through-hole (face selection) + fillet all edges (edge selection); reusable selection layer | 🚧 ongoing |
 
 See [Docs/PROGRESS.md](Docs/PROGRESS.md) for the detailed log and roadmap.
 
@@ -78,6 +78,7 @@ Desktop / Claude Code) using the venv's Python:
 | `new_part` | Create a new empty part (becomes current) |
 | `add_box(width_mm, height_mm, depth_mm, name)` | Sketch rectangle + extrude; returns mass properties |
 | `add_hole(diameter_mm, x_mm, y_mm, name)` | Cut a circular through-hole at (x, y) through the depth axis |
+| `add_fillet(radius_mm, name)` | Round all edges of the part with one constant radius |
 | `set_dimension(dimension_name, value_mm)` | Change a named driving dim (e.g. `D1@BlockExtrude`), rebuild, remeasure |
 | `rebuild(top_only)` | Force rebuild, report errors |
 | `get_mass_properties` | Volume, mass, surface area, centre of mass, bounding box |
@@ -118,10 +119,11 @@ Two non-obvious design decisions, both load-bearing:
 
 ## Known limitations / roadmap
 
-- Geometry so far: **boxes** and **through-holes**. Next: fillet/chamfer (edge
-  selection), revolve, generic sketch primitives, equations.
-- Selection: language-independent plane walk + face-by-normal
-  (`_planar_face_by_normal`, reused by future cut/fillet ops). Arbitrary
-  user-directed face/edge picking is not exposed yet.
+- Geometry so far: **boxes**, **through-holes**, **fillets** (all edges). Next:
+  chamfer, revolve, generic sketch primitives, equations.
+- Selection: language-independent plane walk, face-by-normal
+  (`_planar_face_by_normal`) and all-edge selection (`_select_all_edges`).
+  Selective, user-directed face/edge picking is not exposed yet (fillet rounds
+  *all* edges for now).
 - Assemblies, interference detection, drawings and Simulation (FEA) are out of
   scope for v0 (M5).
