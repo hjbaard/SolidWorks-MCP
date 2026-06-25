@@ -296,6 +296,48 @@ class SolidWorksSession:
         result["depth_dimension"] = f"D1@{result['feature']}"
         return result
 
+    def add_cylinder(self, diameter_mm: float, height_mm: float, name: str = "Revolve") -> dict:
+        """Create a cylinder by revolving a rectangular profile 360 deg about an axis.
+
+        Sketches a radius x height rectangle on the first plane with one edge on
+        the revolve axis (a centerline at x=0) and revolves it fully. A single
+        centerline is auto-detected as the axis. This proves the revolve path; the
+        same plumbing extends to cones / general profiles next. Returns mass
+        properties (volume should equal pi * r^2 * h).
+        """
+        model = self._require_model()
+        for value, label in ((diameter_mm, "diameter"), (height_mm, "height")):
+            if value <= 0:
+                raise SolidWorksError(f"{label} moet > 0 zijn (kreeg {value}).")
+
+        plane = self._first_ref_plane()
+        if plane is None:
+            raise SolidWorksError("Geen reference plane gevonden in de feature tree.")
+        if not plane.Select2(False, 0):
+            raise SolidWorksError("Kon de reference plane niet selecteren.")
+
+        radius = mm_to_m(diameter_mm / 2.0)
+        height = mm_to_m(height_mm)
+        sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
+        sk.InsertSketch(True)
+        sk.CreateCornerRectangle(0.0, 0.0, 0.0, radius, height, 0.0)
+        sk.CreateCenterLine(0.0, 0.0, 0.0, 0.0, height, 0.0)  # axis at x=0
+        sk.InsertSketch(True)  # exit sketch
+
+        feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
+        revolve = feat_mgr.FeatureRevolve2(
+            True, True, False, False,    # SingleDir, IsSolid, IsThin, IsCut
+            False, False,                # ReverseDir, BothDirectionUpToSameEntity
+            SW_END_COND_BLIND, 0,        # Dir1Type, Dir2Type
+            deg_to_rad(360.0), 0.0,      # Dir1Angle (full revolve), Dir2Angle
+            False, False, 0.0, 0.0,      # OffsetReverse1/2, OffsetDistance1/2
+            0, 0.0, 0.0,                 # ThinType, ThinThickness1/2
+            True, True, True,            # Merge, UseFeatScope, UseAutoSelect
+        )
+        if revolve is None:
+            raise SolidWorksError("FeatureRevolve2 mislukte (None). Is het profiel geldig?")
+        return self._finish_feature(revolve, name)
+
     def add_hole(self, diameter_mm: float, x_mm: float, y_mm: float,
                  name: str = "Hole") -> dict:
         """Cut a circular through-hole at (x, y), straight through the depth axis.

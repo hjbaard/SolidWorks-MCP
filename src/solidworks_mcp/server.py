@@ -58,6 +58,16 @@ async def add_box(width_mm: float, height_mm: float, depth_mm: float,
 
 
 @mcp.tool()
+async def add_cylinder(diameter_mm: float, height_mm: float, name: str = "Revolve") -> dict:
+    """Create a cylinder by revolving a profile 360° about an axis.
+
+    The first revolve-based primitive. Returns the resulting mass properties
+    (volume = π · r² · h). Use new_part first.
+    """
+    return await _call(_session.add_cylinder, diameter_mm, height_mm, name)
+
+
+@mcp.tool()
 async def add_hole(diameter_mm: float, x_mm: float, y_mm: float, name: str = "Hole") -> dict:
     """Cut a circular through-hole at (x_mm, y_mm), through the part's depth axis.
 

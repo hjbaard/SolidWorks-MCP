@@ -18,7 +18,7 @@ Proven end-to-end against **SOLIDWORKS 2026 (3DEXPERIENCE R2026x)**:
 | M1 | new part → sketch rectangle → extrude → mass properties (volume matches hand calc) | ✅ |
 | M2 | change a named dimension → rebuild → volume changes predictably | ✅ |
 | M3 | full agent loop via the MCP server: build → measure → correct → export STEP/STL + screenshot | ✅ |
-| M4 | through-hole (face selection), fillet + chamfer all edges (edge selection); reusable selection layer | 🚧 ongoing |
+| M4 | hole (face selection), fillet/chamfer (directional edge selection), cylinder via revolve | 🚧 ongoing |
 
 See [Docs/PROGRESS.md](Docs/PROGRESS.md) for the detailed log and roadmap.
 
@@ -77,6 +77,7 @@ Desktop / Claude Code) using the venv's Python:
 | `get_status` | Is SolidWorks reachable? revision + active/current part |
 | `new_part` | Create a new empty part (becomes current) |
 | `add_box(width_mm, height_mm, depth_mm, name)` | Sketch rectangle + extrude; returns mass properties |
+| `add_cylinder(diameter_mm, height_mm, name)` | Cylinder by revolving a profile 360° about an axis |
 | `add_hole(diameter_mm, x_mm, y_mm, name)` | Cut a circular through-hole at (x, y) through the depth axis |
 | `add_fillet(radius_mm, edges, name)` | Round edges with a constant radius (`edges`: `all` or axis `x`/`y`/`z`) |
 | `add_chamfer(distance_mm, edges, name)` | Chamfer edges at 45° (`edges`: `all` or axis `x`/`y`/`z`) |
@@ -120,9 +121,10 @@ Two non-obvious design decisions, both load-bearing:
 
 ## Known limitations / roadmap
 
-- Geometry so far: **boxes**, **through-holes**, **fillets**, **chamfers**, with
-  directional edge selection. Next: revolve, generic sketch primitives,
-  index-based / per-face selection, equations.
+- Geometry so far: **boxes**, **cylinders** (revolve), **through-holes**,
+  **fillets**, **chamfers**, with directional edge selection. Next: cones /
+  general revolve profiles, generic sketch primitives, index-based / per-face
+  selection, equations.
 - Selection: language-independent plane walk, face-by-normal
   (`_planar_face_by_normal`), and edge selection by axis (`_select_edges`: `all`
   or edges parallel to `x`/`y`/`z`). Index-based picking and choosing the hole

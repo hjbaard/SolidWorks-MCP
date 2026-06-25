@@ -94,6 +94,16 @@ Adversarial review of the M4 code (8 findings confirmed). Applied:
 - `_finish_feature` helper (DRY across the 4 builders) now also returns
   `rebuild_ok`, mirroring set_dimension. Full M-suite + MCP test still green.
 
+### M4 — Revolve (cylinder) 🚧
+`scripts/m4_cylinder.py` + `add_cylinder`: first revolve-based primitive. Sketches
+a radius x height rectangle + a single centerline (the axis at x=0) and calls
+FeatureRevolve2 with Dir1Type=blind, Dir1Angle=360°. Ø20 x h20 -> 6283.185 mm³
+(= π·10²·20) to machine precision; bbox [20,20,20]. Verified visually.
+
+Revolve lesson: a lone centerline in the sketch is auto-detected as the axis
+(UseAutoSelect), so no explicit axis selection is needed. The same plumbing
+extends to cones (trapezoid profile) and general profiles.
+
 ## Key API findings (this build)
 
 These were read from the installed typelib (`scripts/introspect_api.py`), not
@@ -114,8 +124,8 @@ guessed — and several differ from common web docs:
 
 ## Next
 
-- Revolve (`FeatureRevolve2`); generic sketch primitives (line/arc) — opens up
-  non-box geometry.
+- General revolve: cone (trapezoid profile) and arbitrary (radius, z) profiles,
+  reusing the add_cylinder plumbing; generic sketch primitives (line/arc).
 - More selection: choose the hole face (not just +Z), index-based edge/face
   picking, and a `list_edges`/`list_faces` tool so an agent can inspect geometry.
 - Equations (`IEquationMgr`).
