@@ -78,8 +78,8 @@ Desktop / Claude Code) using the venv's Python:
 | `new_part` | Create a new empty part (becomes current) |
 | `add_box(width_mm, height_mm, depth_mm, name)` | Sketch rectangle + extrude; returns mass properties |
 | `add_hole(diameter_mm, x_mm, y_mm, name)` | Cut a circular through-hole at (x, y) through the depth axis |
-| `add_fillet(radius_mm, name)` | Round all edges of the part with one constant radius |
-| `add_chamfer(distance_mm, name)` | Chamfer all edges at 45° with the given setback distance |
+| `add_fillet(radius_mm, edges, name)` | Round edges with a constant radius (`edges`: `all` or axis `x`/`y`/`z`) |
+| `add_chamfer(distance_mm, edges, name)` | Chamfer edges at 45° (`edges`: `all` or axis `x`/`y`/`z`) |
 | `set_dimension(dimension_name, value_mm)` | Change a named driving dim (e.g. `D1@BlockExtrude`), rebuild, remeasure |
 | `rebuild(top_only)` | Force rebuild, report errors |
 | `get_mass_properties` | Volume, mass, surface area, centre of mass, bounding box |
@@ -120,12 +120,12 @@ Two non-obvious design decisions, both load-bearing:
 
 ## Known limitations / roadmap
 
-- Geometry so far: **boxes**, **through-holes**, **fillets** and **chamfers**
-  (all edges). Next: selective edge/face picking, revolve, generic sketch
-  primitives, equations.
+- Geometry so far: **boxes**, **through-holes**, **fillets**, **chamfers**, with
+  directional edge selection. Next: revolve, generic sketch primitives,
+  index-based / per-face selection, equations.
 - Selection: language-independent plane walk, face-by-normal
-  (`_planar_face_by_normal`) and all-edge selection (`_select_all_edges`).
-  Selective, user-directed face/edge picking is not exposed yet (fillet/chamfer
-  act on *all* edges for now).
+  (`_planar_face_by_normal`), and edge selection by axis (`_select_edges`: `all`
+  or edges parallel to `x`/`y`/`z`). Index-based picking and choosing the hole
+  face are still open.
 - Assemblies, interference detection, drawings and Simulation (FEA) are out of
   scope for v0 (M5).

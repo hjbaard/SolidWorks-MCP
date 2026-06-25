@@ -73,6 +73,13 @@ Chamfer lesson: `swChamferEqualDistance` (16) is a silent no-op here (returns a
 feature that removes nothing); use `swChamferAngleDistance` (1) with Width +
 45° angle. Caught by the volume check (feature built but volume unchanged).
 
+`scripts/m4_select_edges.py` + `_select_edges(body, selector)`: directional edge
+selection for fillet/chamfer. `edges='x'|'y'|'z'` selects straight edges parallel
+to that world axis (via start/end vertices; curved/closed edges like a hole's
+circle have no vertices and never match). Verified: a 40x20x10 box has exactly 4
+edges per axis; r=2 fillet removes 137/69/34 mm³ for x/y/z (proportional to the
+40/20/10 lengths). Visually confirmed only the depth edges round for 'z'.
+
 ## Key API findings (this build)
 
 These were read from the installed typelib (`scripts/introspect_api.py`), not
@@ -93,10 +100,10 @@ guessed — and several differ from common web docs:
 
 ## Next
 
-- **Selective edge/face picking** — fillet/chamfer/hole currently act on all
-  edges / the +Z face; add criteria (by direction, by feature) for user-directed
-  selection. This is the next real depth step.
-- Revolve (`FeatureRevolve2`); generic sketch primitives (line/arc).
+- Revolve (`FeatureRevolve2`); generic sketch primitives (line/arc) — opens up
+  non-box geometry.
+- More selection: choose the hole face (not just +Z), index-based edge/face
+  picking, and a `list_edges`/`list_faces` tool so an agent can inspect geometry.
 - Equations (`IEquationMgr`).
 - Richer rebuild-error reporting (feature-level error/warning enumeration).
 

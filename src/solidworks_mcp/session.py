@@ -170,16 +170,50 @@ class SolidWorksSession:
                 best = face
         return best
 
-    def _select_all_edges(self, body) -> int:
-        """Append-select every edge of `body`; return how many were selected."""
+    def _edge_parallel_to(self, edge_dispatch, target) -> bool:
+        """True if a straight edge runs parallel to unit vector `target`.
+
+        Uses the edge's start/end vertices; a curved or closed edge (e.g. the
+        circle of a hole) has no start/end vertex and never matches an axis.
+        """
+        edge = binding.wrap(edge_dispatch, self._mod.IEdge)
+        start = edge.GetStartVertex()
+        end = edge.GetEndVertex()
+        if start is None or end is None:
+            return False
+        p1 = binding.wrap(start, self._mod.IVertex).GetPoint()
+        p2 = binding.wrap(end, self._mod.IVertex).GetPoint()
+        dx, dy, dz = p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2]
+        length = (dx * dx + dy * dy + dz * dz) ** 0.5
+        if length < 1e-9:
+            return False
+        dot = abs(dx * target[0] + dy * target[1] + dz * target[2]) / length
+        return dot > 0.99
+
+    _EDGE_AXES = {"x": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "z": (0.0, 0.0, 1.0)}
+
+    def _select_edges(self, body, selector: str = "all") -> int:
+        """Append-select body edges matching `selector`; return how many.
+
+        selector: 'all' = every edge; 'x'|'y'|'z' = straight edges parallel to
+        that world axis (for an add_box block, 'z' is the depth/extrude edges).
+        """
+        selector = (selector or "all").lower()
+        if selector != "all" and selector not in self._EDGE_AXES:
+            raise SolidWorksError(
+                f"Onbekende edge-selector '{selector}'. Gebruik 'all', 'x', 'y' of 'z'."
+            )
         edges = body.GetEdges()
         if not edges:
             return 0
         if not isinstance(edges, (list, tuple)):
             edges = [edges]
+        target = self._EDGE_AXES.get(selector)
         self._model.ClearSelection2(True)
         count = 0
         for edge_dispatch in edges:
+            if target is not None and not self._edge_parallel_to(edge_dispatch, target):
+                continue
             if binding.wrap(edge_dispatch, self._mod.IEntity).Select4(True, None):
                 count += 1
         return count
@@ -316,21 +350,22 @@ class SolidWorksSession:
             "mass_properties": self.get_mass_properties()["mass_properties"],
         }
 
-    def add_fillet(self, radius_mm: float, name: str = "Fillet") -> dict:
-        """Round ALL edges of the part's solid body with one constant radius.
+    def add_fillet(self, radius_mm: float, edges: str = "all", name: str = "Fillet") -> dict:
+        """Round edges of the part's solid body with one constant radius.
 
-        Uses the reusable edge selection (_select_all_edges) + FeatureFillet3 with
-        a uniform radius. Returns how many edges were filleted and the resulting
-        mass properties (volume drops as convex edges are rounded off).
+        edges: 'all' (default) or a world axis 'x'|'y'|'z' to round only the
+        straight edges parallel to that axis ('z' = the depth edges of an add_box
+        block). Returns how many edges were filleted and the resulting mass
+        properties (volume drops as convex edges are rounded off).
         """
         model = self._require_model()
         if radius_mm <= 0:
             raise SolidWorksError(f"radius moet > 0 zijn (kreeg {radius_mm}).")
 
         body = self._solid_body()
-        edge_count = self._select_all_edges(body)
+        edge_count = self._select_edges(body, edges)
         if edge_count == 0:
-            raise SolidWorksError("Geen randen gevonden om af te ronden.")
+            raise SolidWorksError(f"Geen randen gevonden voor selector '{edges}'.")
 
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
         fillet = feat_mgr.FeatureFillet3(
@@ -358,20 +393,21 @@ class SolidWorksSession:
             "mass_properties": self.get_mass_properties()["mass_properties"],
         }
 
-    def add_chamfer(self, distance_mm: float, name: str = "Chamfer") -> dict:
-        """Chamfer ALL edges of the part's solid body at 45 degrees (equal distance).
+    def add_chamfer(self, distance_mm: float, edges: str = "all", name: str = "Chamfer") -> dict:
+        """Chamfer edges of the part's solid body at 45 degrees (equal distance).
 
-        Reuses the edge selection + InsertFeatureChamfer. Returns how many edges
-        were chamfered and the resulting mass properties.
+        edges: 'all' (default) or a world axis 'x'|'y'|'z' to chamfer only the
+        straight edges parallel to that axis. Returns how many edges were
+        chamfered and the resulting mass properties.
         """
         model = self._require_model()
         if distance_mm <= 0:
             raise SolidWorksError(f"distance moet > 0 zijn (kreeg {distance_mm}).")
 
         body = self._solid_body()
-        edge_count = self._select_all_edges(body)
+        edge_count = self._select_edges(body, edges)
         if edge_count == 0:
-            raise SolidWorksError("Geen randen gevonden om te chamferen.")
+            raise SolidWorksError(f"Geen randen gevonden voor selector '{edges}'.")
 
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
         chamfer = feat_mgr.InsertFeatureChamfer(

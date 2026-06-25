@@ -69,21 +69,25 @@ async def add_hole(diameter_mm: float, x_mm: float, y_mm: float, name: str = "Ho
 
 
 @mcp.tool()
-async def add_fillet(radius_mm: float, name: str = "Fillet") -> dict:
-    """Round all edges of the current part with one constant radius (mm).
+async def add_fillet(radius_mm: float, edges: str = "all", name: str = "Fillet") -> dict:
+    """Round edges of the current part with one constant radius (mm).
 
-    Returns the number of edges filleted and the resulting mass properties.
+    edges: "all" (default), or "x"/"y"/"z" to round only the edges parallel to
+    that world axis ("z" = the depth edges of an add_box block). Returns the
+    number of edges filleted and the resulting mass properties.
     """
-    return await _call(_session.add_fillet, radius_mm, name)
+    return await _call(_session.add_fillet, radius_mm, edges, name)
 
 
 @mcp.tool()
-async def add_chamfer(distance_mm: float, name: str = "Chamfer") -> dict:
-    """Chamfer all edges of the current part at 45° with the given distance (mm).
+async def add_chamfer(distance_mm: float, edges: str = "all", name: str = "Chamfer") -> dict:
+    """Chamfer edges of the current part at 45° with the given distance (mm).
 
-    Returns the number of edges chamfered and the resulting mass properties.
+    edges: "all" (default), or "x"/"y"/"z" to chamfer only the edges parallel to
+    that world axis. Returns the number of edges chamfered and the resulting mass
+    properties.
     """
-    return await _call(_session.add_chamfer, distance_mm, name)
+    return await _call(_session.add_chamfer, distance_mm, edges, name)
 
 
 @mcp.tool()
