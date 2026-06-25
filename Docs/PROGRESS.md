@@ -44,6 +44,18 @@ Adversarial code-review pass (4 dimensions, findings verified). Applied:
 - Removed dead code (`DOC_TYPE_NAMES`, unused doc-type constants,
   `deg_to_rad`/`rad_to_deg`). Re-run: M1/M2/MCP all still green.
 
+### M4 — Cut-extrude (hole) + face selection 🚧
+`scripts/m4_hole.py`. Kickoff M3 spec: 40x20x10 block with a centred Ø8
+through-hole -> volume 7497.345 mm³ (= block - π·4²·10), matches to machine
+precision. Added a reusable `_planar_face_by_normal` selection helper (picks a
+face by outward normal, e.g. +Z) and an `add_hole` tool; the MCP end-to-end test
+now covers it (11 tools).
+
+Lesson (caught by the screenshot check): a cut sketched on a reference plane
+coincident with a face fails for *every* direction/end-condition; sketching on
+the actual selected face makes the cut unambiguous. The hole runs along the
+add_box depth axis (the +Z profile face), i.e. through the plate thickness.
+
 ## Key API findings (this build)
 
 These were read from the installed typelib (`scripts/introspect_api.py`), not
@@ -62,11 +74,11 @@ guessed — and several differ from common web docs:
 - Plane selection by name (`"Front Plane"`) is language-dependent; we walk the
   feature tree for `GetTypeName2() == "RefPlane"` instead.
 
-## Next (M4)
+## Next
 
-- Generic sketch primitives; revolve; fillet on selected edges.
-- **Hole / cut-extrude on a face** (needed for the kickoff M3 spec
-  "block 40×20×10, Ø8 hole centred") — requires robust face selection.
+- **Fillet / chamfer on selected edges** — extends the selection layer to edges
+  (analogous to `_planar_face_by_normal` but for edges).
+- Revolve (`FeatureRevolve2`); generic sketch primitives (line/arc).
 - Equations (`IEquationMgr`).
 - Richer rebuild-error reporting (feature-level error/warning enumeration).
 

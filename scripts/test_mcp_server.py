@@ -13,6 +13,7 @@ Run with the venv python (the server module must be importable there):
 
 import asyncio
 import json
+import math
 import os
 import sys
 
@@ -80,6 +81,14 @@ async def run() -> int:
             vol2 = r.get("mass_properties", {}).get("volume_mm3", 0)
             check("rebuild ok", r.get("rebuild_ok") is True)
             check("volume == 20000 mm^3", approx(vol2, 20000.0), f"{vol2:.1f} mm^3")
+
+            print("[4b] add_hole Ø8 centraal")
+            r = payload(await session.call_tool(
+                "add_hole", {"diameter_mm": 8, "x_mm": 20, "y_mm": 10}))
+            vol_hole = r.get("mass_properties", {}).get("volume_mm3", 0)
+            expected_hole = 40 * 20 * 25 - math.pi * 4 ** 2 * 25  # block 40x20x25 minus Ø8 through
+            check("volume na gat", approx(vol_hole, expected_hole),
+                  f"{vol_hole:.1f} mm^3 (verwacht {expected_hole:.1f})")
 
             print("[5] get_bounding_box")
             r = payload(await session.call_tool("get_bounding_box", {}))

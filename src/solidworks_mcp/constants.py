@@ -9,6 +9,10 @@ trust the installed library over web docs.
 
 # swEndConditions_e
 SW_END_COND_BLIND = 0
+SW_END_COND_THROUGH_ALL = 1
+
+# swBodyType_e
+SW_BODY_SOLID = 0
 
 # swStartConditions_e
 SW_START_SKETCH_PLANE = 0

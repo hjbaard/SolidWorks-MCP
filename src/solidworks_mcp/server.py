@@ -58,6 +58,17 @@ async def add_box(width_mm: float, height_mm: float, depth_mm: float,
 
 
 @mcp.tool()
+async def add_hole(diameter_mm: float, x_mm: float, y_mm: float, name: str = "Hole") -> dict:
+    """Cut a circular through-hole at (x_mm, y_mm), through the part's depth axis.
+
+    The hole runs straight through the thickness (the add_box extrude direction),
+    perpendicular to the width x height profile face. Coordinates share add_box's
+    system (the centre of a 40x20 profile is x=20, y=10). Returns mass properties.
+    """
+    return await _call(_session.add_hole, diameter_mm, x_mm, y_mm, name)
+
+
+@mcp.tool()
 async def set_dimension(dimension_name: str, value_mm: float) -> dict:
     """Set a named driving dimension (e.g. 'D1@BlockExtrude') in mm, rebuild, and remeasure.
 

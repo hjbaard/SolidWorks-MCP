@@ -16,7 +16,9 @@ import pythoncom
 from . import binding
 from .constants import (
     EXPORT_FORMATS,
+    SW_BODY_SOLID,
     SW_END_COND_BLIND,
+    SW_END_COND_THROUGH_ALL,
     SW_PREF_DEFAULT_TEMPLATE_PART,
     SW_SAVE_AS_CURRENT_VERSION,
     SW_SAVE_AS_OPTIONS_SILENT,
@@ -129,6 +131,40 @@ class SolidWorksSession:
             feat = binding.wrap(feat.GetNextFeature(), self._mod.IFeature)
         return None
 
+    def _solid_body(self):
+        """The first solid body of the current part (early-bound IBody2)."""
+        part = binding.wrap(self._model, self._mod.IPartDoc)
+        bodies = part.GetBodies2(SW_BODY_SOLID, True)
+        if not bodies:
+            raise SolidWorksError("Geen solid body; bouw eerst geometrie (bv. add_box).")
+        if not isinstance(bodies, (list, tuple)):
+            bodies = [bodies]
+        return binding.wrap(bodies[0], self._mod.IBody2)
+
+    def _planar_face_by_normal(self, body, target):
+        """Return the face whose outward normal best matches `target` (unit vector).
+
+        The reusable selection primitive: e.g. target (0,0,1) is the top face.
+        Normals come from IFace2.Normal (outward for solid faces). Returns the
+        early-bound IFace2, or None if nothing faces that way closely enough.
+        """
+        faces = body.GetFaces()
+        if not faces:
+            return None
+        if not isinstance(faces, (list, tuple)):
+            faces = [faces]
+        tx, ty, tz = target
+        best = None
+        best_dot = 0.99  # require a near-exact match (a face actually facing `target`)
+        for face_dispatch in faces:
+            face = binding.wrap(face_dispatch, self._mod.IFace2)
+            nx, ny, nz = face.Normal
+            dot = nx * tx + ny * ty + nz * tz
+            if dot > best_dot:
+                best_dot = dot
+                best = face
+        return best
+
     def add_box(self, width_mm: float, height_mm: float, depth_mm: float,
                 name: str = "BlockExtrude") -> dict:
         """Sketch a rectangle on the first plane and extrude it; returns mass props.
@@ -188,6 +224,76 @@ class SolidWorksSession:
             "ok": True,
             "feature": feature_name,
             "depth_dimension": f"D1@{feature_name}",
+            "mass_properties": self.get_mass_properties()["mass_properties"],
+        }
+
+    def add_hole(self, diameter_mm: float, x_mm: float, y_mm: float,
+                 name: str = "Hole") -> dict:
+        """Cut a circular through-hole at (x, y), straight through the depth axis.
+
+        Selects the +Z face (the face parallel to add_box's width x height
+        profile) and cuts through all material to the opposite face -- i.e. a hole
+        through a plate's thickness, along the extrude direction. (x_mm, y_mm) are
+        in add_box's coordinate system, so the centre of a 40x20 profile is x=20,
+        y=10. Returns the resulting mass properties.
+
+        Sketching on this face -- rather than on a reference plane coincident with
+        the opposite face -- is what makes the cut direction unambiguous.
+        """
+        model = self._require_model()
+        if diameter_mm <= 0:
+            raise SolidWorksError(f"diameter moet > 0 zijn (kreeg {diameter_mm}).")
+
+        body = self._solid_body()
+        face = self._planar_face_by_normal(body, (0.0, 0.0, 1.0))
+        if face is None:
+            raise SolidWorksError("Geen +Z-vlak gevonden om in te boren.")
+        entity = binding.wrap(face, self._mod.IEntity)
+        model.ClearSelection2(True)
+        if not entity.Select4(False, None):
+            raise SolidWorksError("Kon het +Z-vlak niet selecteren.")
+
+        sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
+        sk.InsertSketch(True)  # the sketch is created on the selected face
+        circle = sk.CreateCircleByRadius(
+            mm_to_m(x_mm), mm_to_m(y_mm), 0.0, mm_to_m(diameter_mm / 2.0))
+        sk.InsertSketch(True)  # close the sketch
+        if not circle:
+            raise SolidWorksError("Cirkel-sketch mislukte: CreateCircleByRadius gaf niets terug.")
+
+        feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
+        cut = feat_mgr.FeatureCut4(
+            True, False, False,                # Sd, Flip, Dir
+            SW_END_COND_THROUGH_ALL, 0,        # T1 (through all, into the material), T2
+            0.0, 0.0,                          # D1, D2 (ignored for through-all)
+            False, False,                      # Dchk1, Dchk2
+            False, False,                      # Ddir1, Ddir2
+            0.0, 0.0,                          # Dang1, Dang2
+            False, False,                      # OffsetReverse1, OffsetReverse2
+            False, False,                      # TranslateSurface1, TranslateSurface2
+            False,                             # NormalCut
+            True,                              # UseFeatScope
+            True,                              # UseAutoSelect
+            False,                             # AssemblyFeatureScope
+            False,                             # AutoSelectComponents
+            False,                             # PropagateFeatureToParts
+            SW_START_SKETCH_PLANE,             # T0 (start condition)
+            0.0,                               # StartOffset
+            False,                             # FlipStartOffset
+            False,                             # OptimizeGeometry
+        )
+        if cut is None:
+            raise SolidWorksError(
+                "FeatureCut4 mislukte (None). Ligt (x, y) binnen het materiaal van het part?"
+            )
+        try:
+            cut.Name = name
+        except pythoncom.com_error:
+            pass
+        model.ForceRebuild3(False)
+        return {
+            "ok": True,
+            "feature": cut.Name,
             "mass_properties": self.get_mass_properties()["mass_properties"],
         }
 
