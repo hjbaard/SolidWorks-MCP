@@ -112,6 +112,16 @@ async def add_chamfer(distance_mm: float, edges: str = "all", name: str = "Chamf
 
 
 @mcp.tool()
+async def add_shell(thickness_mm: float, open_face: str = "+z") -> dict:
+    """Hollow the current part to a wall of thickness_mm, opening one face.
+
+    open_face: a direction "+z"/"-z"/"+x"/... removes that planar face (open
+    shell); "none" makes a closed hollow. Returns the resulting mass properties.
+    """
+    return await _call(_session.add_shell, thickness_mm, open_face)
+
+
+@mcp.tool()
 async def set_dimension(dimension_name: str, value_mm: float) -> dict:
     """Set a named driving dimension (e.g. 'D1@BlockExtrude') in mm, rebuild, and remeasure.
 

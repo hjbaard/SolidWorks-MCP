@@ -172,6 +172,19 @@ class SolidWorksSession:
                 best = face
         return best
 
+    _DIRECTIONS = {
+        "+x": (1.0, 0.0, 0.0), "-x": (-1.0, 0.0, 0.0),
+        "+y": (0.0, 1.0, 0.0), "-y": (0.0, -1.0, 0.0),
+        "+z": (0.0, 0.0, 1.0), "-z": (0.0, 0.0, -1.0),
+    }
+
+    def _parse_direction(self, token: str):
+        """'+z'/'-x'/... -> a unit vector tuple. Raises on an unknown token."""
+        key = (token or "").lower().strip()
+        if key not in self._DIRECTIONS:
+            raise SolidWorksError(f"Onbekende richting '{token}'. Gebruik +x/-x/+y/-y/+z/-z.")
+        return self._DIRECTIONS[key]
+
     def _edge_parallel_to(self, edge_dispatch, target) -> bool:
         """True if a STRAIGHT edge runs parallel to unit vector `target`.
 
@@ -531,6 +544,36 @@ class SolidWorksSession:
                 "InsertFeatureChamfer mislukte (None). Is de afstand te groot voor de geometrie?"
             )
         return self._finish_feature(chamfer, name, edges_chamfered=edge_count)
+
+    def add_shell(self, thickness_mm: float, open_face: str = "+z") -> dict:
+        """Hollow the part to a wall of `thickness_mm`, optionally opening one face.
+
+        open_face: a direction '+z'/'-z'/'+x'/... selects the planar face to remove
+        (an open shell); 'none' makes a fully closed hollow. Returns mass
+        properties (volume drops to just the walls). InsertFeatureShell returns no
+        feature object, so there is no feature name.
+        """
+        model = self._require_model()
+        if thickness_mm <= 0:
+            raise SolidWorksError(f"thickness moet > 0 zijn (kreeg {thickness_mm}).")
+
+        body = self._solid_body()
+        model.ClearSelection2(True)
+        opened = (open_face or "none").lower()
+        if opened != "none":
+            face = self._planar_face_by_normal(body, self._parse_direction(opened))
+            if face is None:
+                raise SolidWorksError(f"Geen planair {opened}-vlak gevonden om te openen.")
+            if not binding.wrap(face, self._mod.IEntity).Select4(False, None):
+                raise SolidWorksError(f"Kon het {opened}-vlak niet selecteren.")
+
+        # Outward=False: the wall grows inward, so the outer size is unchanged.
+        model.InsertFeatureShell(mm_to_m(thickness_mm), False)
+        rebuilt_ok = bool(model.ForceRebuild3(False))
+        props = self.get_mass_properties()["mass_properties"]
+        if abs(props["volume_mm3"]) < 1e-6:
+            raise SolidWorksError("Shell verwijderde al het materiaal; is de wanddikte te groot?")
+        return {"ok": True, "open_face": opened, "rebuild_ok": rebuilt_ok, "mass_properties": props}
 
     # --- parametric edit ------------------------------------------------------
 
