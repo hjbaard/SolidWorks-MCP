@@ -82,9 +82,9 @@ async def add_hole(diameter_mm: float, x_mm: float, y_mm: float, name: str = "Ho
 async def add_fillet(radius_mm: float, edges: str = "all", name: str = "Fillet") -> dict:
     """Round edges of the current part with one constant radius (mm).
 
-    edges: "all" (default), or "x"/"y"/"z" to round only the edges parallel to
-    that world axis ("z" = the depth edges of an add_box block). Returns the
-    number of edges filleted and the resulting mass properties.
+    edges: "all" (default), "x"/"y"/"z" for edges parallel to that world axis, or
+    explicit indices like "2,5" from list_edges. Returns the number of edges
+    filleted and the resulting mass properties.
     """
     return await _call(_session.add_fillet, radius_mm, edges, name)
 
@@ -93,8 +93,8 @@ async def add_fillet(radius_mm: float, edges: str = "all", name: str = "Fillet")
 async def add_chamfer(distance_mm: float, edges: str = "all", name: str = "Chamfer") -> dict:
     """Chamfer edges of the current part at 45° with the given distance (mm).
 
-    edges: "all" (default), or "x"/"y"/"z" to chamfer only the edges parallel to
-    that world axis. Returns the number of edges chamfered and the resulting mass
+    edges: "all" (default), "x"/"y"/"z", or explicit indices like "2,5" from
+    list_edges. Returns the number of edges chamfered and the resulting mass
     properties.
     """
     return await _call(_session.add_chamfer, distance_mm, edges, name)
@@ -125,6 +125,24 @@ async def get_mass_properties() -> dict:
 async def get_bounding_box() -> dict:
     """Get the tight bounding box of the current part (min/max/size in mm)."""
     return await _call(_session.get_bounding_box)
+
+
+@mcp.tool()
+async def list_faces() -> dict:
+    """List the part's faces (index, planar?, normal, area, centre) for inspection.
+
+    Indices are positional and shift as features are added; call again after edits.
+    """
+    return await _call(_session.list_faces)
+
+
+@mcp.tool()
+async def list_edges() -> dict:
+    """List the part's edges (index, type; lines give axis/length/midpoint).
+
+    Use the index with add_fillet/add_chamfer edges="2,5" to target specific edges.
+    """
+    return await _call(_session.list_edges)
 
 
 @mcp.tool()

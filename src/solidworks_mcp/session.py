@@ -198,25 +198,49 @@ class SolidWorksSession:
 
     _EDGE_AXES = {"x": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "z": (0.0, 0.0, 1.0)}
 
-    def _select_edges(self, body, selector: str = "all") -> int:
+    @staticmethod
+    def _parse_edge_indices(selector):
+        """Return a list of int indices if `selector` denotes indices, else None.
+
+        Accepts a list/tuple of ints, or a string like '2,5' / '2 5'.
+        """
+        if isinstance(selector, (list, tuple)):
+            return [int(i) for i in selector]
+        text = str(selector).strip()
+        if text and any(c.isdigit() for c in text) and all(c.isdigit() or c in ", " for c in text):
+            return [int(p) for p in text.replace(",", " ").split()]
+        return None
+
+    def _select_edges(self, body, selector="all") -> int:
         """Append-select body edges matching `selector`; return how many.
 
         selector: 'all' = every edge; 'x'|'y'|'z' = straight edges parallel to
-        that world axis (for an add_box block, 'z' is the depth/extrude edges).
+        that world axis (for an add_box block, 'z' is the depth edges); or explicit
+        indices as [2, 5] or '2,5' (into list_edges order).
         """
-        selector = (selector or "all").lower()
-        if selector != "all" and selector not in self._EDGE_AXES:
-            raise SolidWorksError(
-                f"Onbekende edge-selector '{selector}'. Gebruik 'all', 'x', 'y' of 'z'."
-            )
         edges = body.GetEdges()
         if not edges:
             return 0
         if not isinstance(edges, (list, tuple)):
             edges = [edges]
-        target = self._EDGE_AXES.get(selector)
         self._model.ClearSelection2(True)
         count = 0
+
+        indices = self._parse_edge_indices(selector)
+        if indices is not None:
+            for idx in indices:
+                if idx < 0 or idx >= len(edges):
+                    raise SolidWorksError(f"Edge-index {idx} buiten bereik (0..{len(edges) - 1}).")
+                if binding.wrap(edges[idx], self._mod.IEntity).Select4(True, None):
+                    count += 1
+            return count
+
+        sel = str(selector).lower()
+        if sel != "all" and sel not in self._EDGE_AXES:
+            raise SolidWorksError(
+                f"Onbekende edge-selector '{selector}'. Gebruik 'all', 'x'/'y'/'z' of indices als '2,5'."
+            )
+        target = self._EDGE_AXES.get(sel)
         for edge_dispatch in edges:
             if target is not None and not self._edge_parallel_to(edge_dispatch, target):
                 continue
@@ -402,10 +426,10 @@ class SolidWorksSession:
     def add_fillet(self, radius_mm: float, edges: str = "all", name: str = "Fillet") -> dict:
         """Round edges of the part's solid body with one constant radius.
 
-        edges: 'all' (default) or a world axis 'x'|'y'|'z' to round only the
-        straight edges parallel to that axis ('z' = the depth edges of an add_box
-        block). Returns how many edges were filleted and the resulting mass
-        properties (volume drops as convex edges are rounded off).
+        edges: 'all' (default); a world axis 'x'|'y'|'z' (straight edges parallel
+        to it, e.g. 'z' = the depth edges of an add_box block); or explicit indices
+        like '2,5' from list_edges. Returns how many edges were filleted and the
+        resulting mass properties (volume drops as convex edges are rounded off).
         """
         model = self._require_model()
         if radius_mm <= 0:
@@ -435,9 +459,9 @@ class SolidWorksSession:
     def add_chamfer(self, distance_mm: float, edges: str = "all", name: str = "Chamfer") -> dict:
         """Chamfer edges of the part's solid body at 45 degrees (equal distance).
 
-        edges: 'all' (default) or a world axis 'x'|'y'|'z' to chamfer only the
-        straight edges parallel to that axis. Returns how many edges were
-        chamfered and the resulting mass properties.
+        edges: 'all' (default); a world axis 'x'|'y'|'z'; or explicit indices like
+        '2,5' from list_edges. Returns how many edges were chamfered and the
+        resulting mass properties.
         """
         model = self._require_model()
         if distance_mm <= 0:
@@ -544,6 +568,75 @@ class SolidWorksSession:
     def get_bounding_box(self) -> dict:
         self._require_model()
         return {"ok": True, "bounding_box_mm": self._bounding_box()}
+
+    def _axis_of(self, dx, dy, dz, length):
+        """Return 'x'|'y'|'z' if the vector is parallel to that axis, else None."""
+        if length < 1e-9:
+            return None
+        for axis, (tx, ty, tz) in self._EDGE_AXES.items():
+            if abs(dx * tx + dy * ty + dz * tz) / length > 0.999:
+                return axis
+        return None
+
+    def list_faces(self) -> dict:
+        """Inspect the solid body's faces: index, planar?, normal, area, centre.
+
+        Lets an agent see the geometry before choosing one. Indices are positional
+        in the body's face list and shift as features are added.
+        """
+        self._require_model()
+        body = self._solid_body()
+        faces = body.GetFaces()
+        if not isinstance(faces, (list, tuple)):
+            faces = [faces]
+        out = []
+        for i, face_dispatch in enumerate(faces):
+            face = binding.wrap(face_dispatch, self._mod.IFace2)
+            surface = binding.wrap(face.GetSurface(), self._mod.ISurface)
+            planar = bool(surface is not None and surface.IsPlane())
+            box = face.GetBox()
+            center = None
+            if box and len(box) >= 6:
+                center = [round(m_to_mm((box[j] + box[j + 3]) / 2), 3) for j in range(3)]
+            entry = {
+                "index": i,
+                "type": "planar" if planar else "curved",
+                "area_mm2": round(face.GetArea() * 1e6, 3),
+                "center_mm": center,
+            }
+            if planar:
+                nx, ny, nz = face.Normal
+                entry["normal"] = [round(nx, 4), round(ny, 4), round(nz, 4)]
+            out.append(entry)
+        return {"ok": True, "count": len(out), "faces": out}
+
+    def list_edges(self) -> dict:
+        """Inspect the solid body's edges: index, type; lines also give axis/length/midpoint."""
+        self._require_model()
+        body = self._solid_body()
+        edges = body.GetEdges()
+        if not isinstance(edges, (list, tuple)):
+            edges = [edges]
+        out = []
+        for i, edge_dispatch in enumerate(edges):
+            edge = binding.wrap(edge_dispatch, self._mod.IEdge)
+            curve = binding.wrap(edge.GetCurve(), self._mod.ICurve)
+            is_line = bool(curve is not None and curve.IsLine())
+            is_circle = bool(curve is not None and not is_line and curve.IsCircle())
+            entry = {"index": i, "type": "line" if is_line else ("circle" if is_circle else "curve")}
+            if is_line:
+                start = edge.GetStartVertex()
+                end = edge.GetEndVertex()
+                if start is not None and end is not None:
+                    p1 = binding.wrap(start, self._mod.IVertex).GetPoint()
+                    p2 = binding.wrap(end, self._mod.IVertex).GetPoint()
+                    dx, dy, dz = p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2]
+                    length = (dx * dx + dy * dy + dz * dz) ** 0.5
+                    entry["length_mm"] = round(m_to_mm(length), 3)
+                    entry["midpoint_mm"] = [round(m_to_mm((p1[k] + p2[k]) / 2), 3) for k in range(3)]
+                    entry["axis"] = self._axis_of(dx, dy, dz, length)
+            out.append(entry)
+        return {"ok": True, "count": len(out), "edges": out}
 
     # --- output ---------------------------------------------------------------
 
