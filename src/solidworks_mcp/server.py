@@ -68,6 +68,17 @@ async def add_cylinder(diameter_mm: float, height_mm: float, name: str = "Revolv
 
 
 @mcp.tool()
+async def add_cone(bottom_diameter_mm: float, top_diameter_mm: float,
+                   height_mm: float, name: str = "Revolve") -> dict:
+    """Create a cone/frustum by revolving a trapezoidal profile 360°.
+
+    top_diameter_mm = 0 gives a full cone. Returns mass properties
+    (volume = π·h/3 · (rb² + rb·rt + rt²)). Use new_part first.
+    """
+    return await _call(_session.add_cone, bottom_diameter_mm, top_diameter_mm, height_mm, name)
+
+
+@mcp.tool()
 async def add_hole(diameter_mm: float, x_mm: float, y_mm: float, name: str = "Hole") -> dict:
     """Cut a circular through-hole at (x_mm, y_mm), through the part's depth axis.
 

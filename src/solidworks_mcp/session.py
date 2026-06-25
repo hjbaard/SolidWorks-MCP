@@ -362,6 +362,51 @@ class SolidWorksSession:
             raise SolidWorksError("FeatureRevolve2 mislukte (None). Is het profiel geldig?")
         return self._finish_feature(revolve, name)
 
+    def add_cone(self, bottom_diameter_mm: float, top_diameter_mm: float,
+                 height_mm: float, name: str = "Revolve") -> dict:
+        """Create a cone/frustum by revolving a trapezoidal profile 360 deg.
+
+        top_diameter_mm = 0 gives a full cone. Reuses the add_cylinder revolve
+        plumbing (a closed profile + a centerline axis). Returns mass properties
+        (volume = pi*h/3 * (rb^2 + rb*rt + rt^2)).
+        """
+        model = self._require_model()
+        if bottom_diameter_mm <= 0 or height_mm <= 0:
+            raise SolidWorksError("bottom_diameter en height moeten > 0 zijn.")
+        if top_diameter_mm < 0:
+            raise SolidWorksError("top_diameter mag niet negatief zijn.")
+        if top_diameter_mm >= bottom_diameter_mm:
+            raise SolidWorksError("top_diameter moet kleiner zijn dan bottom_diameter (anders: add_cylinder).")
+
+        plane = self._first_ref_plane()
+        if plane is None:
+            raise SolidWorksError("Geen reference plane gevonden in de feature tree.")
+        if not plane.Select2(False, 0):
+            raise SolidWorksError("Kon de reference plane niet selecteren.")
+
+        rb = mm_to_m(bottom_diameter_mm / 2.0)
+        rt = mm_to_m(top_diameter_mm / 2.0)
+        h = mm_to_m(height_mm)
+        sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
+        sk.InsertSketch(True)
+        sk.CreateLine(0.0, 0.0, 0.0, rb, 0.0, 0.0)   # bottom edge
+        sk.CreateLine(rb, 0.0, 0.0, rt, h, 0.0)      # slant edge (to apex if rt=0)
+        if rt > 1e-9:
+            sk.CreateLine(rt, h, 0.0, 0.0, h, 0.0)   # top edge (omitted for a full cone)
+        sk.CreateLine(0.0, h, 0.0, 0.0, 0.0, 0.0)    # axis edge (closes the profile)
+        sk.CreateCenterLine(0.0, 0.0, 0.0, 0.0, h, 0.0)  # revolve axis at x=0
+        sk.InsertSketch(True)
+
+        feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
+        revolve = feat_mgr.FeatureRevolve2(
+            True, True, False, False, False, False,
+            SW_END_COND_BLIND, 0, deg_to_rad(360.0), 0.0,
+            False, False, 0.0, 0.0, 0, 0.0, 0.0, True, True, True,
+        )
+        if revolve is None:
+            raise SolidWorksError("FeatureRevolve2 mislukte (None). Is het profiel gesloten?")
+        return self._finish_feature(revolve, name)
+
     def add_hole(self, diameter_mm: float, x_mm: float, y_mm: float,
                  name: str = "Hole") -> dict:
         """Cut a circular through-hole at (x, y), straight through the depth axis.
