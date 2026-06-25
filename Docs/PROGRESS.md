@@ -65,6 +65,14 @@ Fillet lesson: FeatureFillet3 needs `swFeatureFilletUniformRadius` in Options to
 use the single R1 radius; without it the API expects a per-edge Radii array and
 returns None.
 
+`scripts/m4_chamfer.py` + `add_chamfer`: 45° chamfer on all edges via
+`InsertFeatureChamfer`, reusing `_select_all_edges`. 40x20x10, d=2 -> 7482.67 mm³
+(removed 517.33, matches the ~500 estimate). Verified visually.
+
+Chamfer lesson: `swChamferEqualDistance` (16) is a silent no-op here (returns a
+feature that removes nothing); use `swChamferAngleDistance` (1) with Width +
+45° angle. Caught by the volume check (feature built but volume unchanged).
+
 ## Key API findings (this build)
 
 These were read from the installed typelib (`scripts/introspect_api.py`), not
@@ -85,10 +93,9 @@ guessed — and several differ from common web docs:
 
 ## Next
 
-- **Chamfer** (`InsertFeatureChamfer`) — reuses `_select_all_edges`; near-free
-  after fillet.
-- **Selective edge/face picking** — fillet/hole currently act on all edges / the
-  +Z face; add criteria (by direction, by feature) for user-directed selection.
+- **Selective edge/face picking** — fillet/chamfer/hole currently act on all
+  edges / the +Z face; add criteria (by direction, by feature) for user-directed
+  selection. This is the next real depth step.
 - Revolve (`FeatureRevolve2`); generic sketch primitives (line/arc).
 - Equations (`IEquationMgr`).
 - Richer rebuild-error reporting (feature-level error/warning enumeration).

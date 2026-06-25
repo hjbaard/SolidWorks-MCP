@@ -78,6 +78,15 @@ async def add_fillet(radius_mm: float, name: str = "Fillet") -> dict:
 
 
 @mcp.tool()
+async def add_chamfer(distance_mm: float, name: str = "Chamfer") -> dict:
+    """Chamfer all edges of the current part at 45° with the given distance (mm).
+
+    Returns the number of edges chamfered and the resulting mass properties.
+    """
+    return await _call(_session.add_chamfer, distance_mm, name)
+
+
+@mcp.tool()
 async def set_dimension(dimension_name: str, value_mm: float) -> dict:
     """Set a named driving dimension (e.g. 'D1@BlockExtrude') in mm, rebuild, and remeasure.
 

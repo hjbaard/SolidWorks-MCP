@@ -17,6 +17,8 @@ from . import binding
 from .constants import (
     EXPORT_FORMATS,
     SW_BODY_SOLID,
+    SW_CHAMFER_ANGLE_DISTANCE,
+    SW_CHAMFER_OPT_TANGENT_PROPAGATION,
     SW_END_COND_BLIND,
     SW_END_COND_THROUGH_ALL,
     SW_FILLET_OPT_PROPAGATE,
@@ -30,7 +32,7 @@ from .constants import (
     SW_VIEW_ISOMETRIC,
 )
 from .errors import SolidWorksError
-from .units import m_to_mm, mm_to_m
+from .units import deg_to_rad, m_to_mm, mm_to_m
 
 
 class SolidWorksSession:
@@ -353,6 +355,46 @@ class SolidWorksSession:
             "ok": True,
             "feature": fillet.Name,
             "edges_filleted": edge_count,
+            "mass_properties": self.get_mass_properties()["mass_properties"],
+        }
+
+    def add_chamfer(self, distance_mm: float, name: str = "Chamfer") -> dict:
+        """Chamfer ALL edges of the part's solid body at 45 degrees (equal distance).
+
+        Reuses the edge selection + InsertFeatureChamfer. Returns how many edges
+        were chamfered and the resulting mass properties.
+        """
+        model = self._require_model()
+        if distance_mm <= 0:
+            raise SolidWorksError(f"distance moet > 0 zijn (kreeg {distance_mm}).")
+
+        body = self._solid_body()
+        edge_count = self._select_all_edges(body)
+        if edge_count == 0:
+            raise SolidWorksError("Geen randen gevonden om te chamferen.")
+
+        feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
+        chamfer = feat_mgr.InsertFeatureChamfer(
+            SW_CHAMFER_OPT_TANGENT_PROPAGATION,  # Options
+            SW_CHAMFER_ANGLE_DISTANCE,           # ChamferType (distance + angle)
+            mm_to_m(distance_mm),                # Width (the setback distance)
+            deg_to_rad(45.0),                    # Angle (45 deg -> symmetric chamfer)
+            0.0,                                 # OtherDist
+            0.0, 0.0, 0.0,                       # Vertex chamfer distances
+        )
+        if chamfer is None:
+            raise SolidWorksError(
+                "InsertFeatureChamfer mislukte (None). Is de afstand te groot voor de geometrie?"
+            )
+        try:
+            chamfer.Name = name
+        except pythoncom.com_error:
+            pass
+        model.ForceRebuild3(False)
+        return {
+            "ok": True,
+            "feature": chamfer.Name,
+            "edges_chamfered": edge_count,
             "mass_properties": self.get_mass_properties()["mass_properties"],
         }
 

@@ -23,6 +23,13 @@ SW_FILLET_TYPE_SIMPLE = 0
 SW_FILLET_OPT_PROPAGATE = 1
 SW_FILLET_OPT_UNIFORM_RADIUS = 2
 
+# swChamferType_e -- AngleDistance is a setback distance + an angle (45 deg gives
+# a symmetric chamfer). EqualDistance(16) alone is a silent no-op on this build.
+SW_CHAMFER_ANGLE_DISTANCE = 1
+
+# swFeatureChamferOption_e (bitmask)
+SW_CHAMFER_OPT_TANGENT_PROPAGATION = 4
+
 # swStartConditions_e
 SW_START_SKETCH_PLANE = 0
 
