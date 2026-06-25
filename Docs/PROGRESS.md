@@ -104,6 +104,19 @@ Revolve lesson: a lone centerline in the sketch is auto-detected as the axis
 (UseAutoSelect), so no explicit axis selection is needed. The same plumbing
 extends to cones (trapezoid profile) and general profiles.
 
+### M4 — inspection, cone, shell, index selection 🚧
+- `list_faces` / `list_edges`: read-only geometry inspection (face normal/area/
+  centre via IFace2.GetArea + ISurface.IsPlane; edge type/axis/length/midpoint via
+  ICurve.IsLine/IsCircle + vertices). Box → 6 planar faces (2800 mm²), 12 lines.
+- **Index edge selection**: fillet/chamfer `edges` now also takes indices ("2,5")
+  from list_edges, not just an axis.
+- `add_cone` (`scripts/m4_cone.py`): trapezoid-profile revolve; top Ø=0 → full
+  cone. Frustum 3665.191, full cone 2094.395 mm³ vs formula.
+- `add_shell` (`scripts/m4_shell.py`): InsertFeatureShell to a wall thickness,
+  removing a chosen planar face (+x/-x/.../-z) or fully closed. 40x20x10 t=2 →
+  open 3392 / closed 4544 mm³. Returns no feature object (build dict inline).
+All verified + visual; 18 MCP tools; end-to-end green.
+
 ## Key API findings (this build)
 
 These were read from the installed typelib (`scripts/introspect_api.py`), not
@@ -124,10 +137,11 @@ guessed — and several differ from common web docs:
 
 ## Next
 
-- General revolve: cone (trapezoid profile) and arbitrary (radius, z) profiles,
-  reusing the add_cylinder plumbing; generic sketch primitives (line/arc).
-- More selection: choose the hole face (not just +Z), index-based edge/face
-  picking, and a `list_edges`/`list_faces` tool so an agent can inspect geometry.
+- Patterns (linear/circular) and mirror — repeat features (e.g. a bolt circle of
+  holes); high value for real parts.
+- General revolve: arbitrary (radius, z) profiles reusing the revolve plumbing;
+  generic sketch primitives (line/arc).
+- Choose the hole face (beyond +Z); index-based face selection for shell/hole.
 - Equations (`IEquationMgr`).
 - Richer rebuild-error reporting (feature-level error/warning enumeration).
 
