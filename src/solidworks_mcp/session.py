@@ -1,0 +1,314 @@
+"""SolidWorks operations.
+
+A thin, stateful wrapper over the COM API. Every method here must run on the COM
+worker thread (see com_worker). Methods return plain JSON-serialisable dicts so
+the MCP tools can hand them straight back to the agent.
+
+The call sequences (enum values, FeatureExtrusion3 argument order, the
+language-independent plane walk, forced-SI mass properties) are the ones proven
+green by scripts/m1_block.py and scripts/m2_parametric.py.
+"""
+
+import os
+
+import pythoncom
+
+from . import binding
+from .constants import (
+    EXPORT_FORMATS,
+    SW_END_COND_BLIND,
+    SW_PREF_DEFAULT_TEMPLATE_PART,
+    SW_SAVE_AS_CURRENT_VERSION,
+    SW_SAVE_AS_OPTIONS_SILENT,
+    SW_START_SKETCH_PLANE,
+    SW_TOGGLE_INPUT_DIM_VAL_ON_CREATE,
+    SW_VIEW_ISOMETRIC,
+)
+from .errors import SolidWorksError
+from .units import m_to_mm, mm_to_m
+
+
+class SolidWorksSession:
+    """Holds the SolidWorks connection and the current part document."""
+
+    def __init__(self) -> None:
+        self._sw = None       # early-bound ISldWorks
+        self._mod = None      # generated wrapper module
+        self._model = None    # current IModelDoc2
+
+    # --- connection -----------------------------------------------------------
+
+    def _ensure(self):
+        if self._sw is None:
+            self.connect()
+        return self._sw
+
+    def connect(self) -> dict:
+        """Attach to the running SolidWorks instance and configure it for automation."""
+        self._mod = binding.module()
+        self._sw = binding.connect()
+        self._configure_for_automation()
+        return self.get_status()
+
+    def _configure_for_automation(self) -> None:
+        # Suppress the modal "enter dimension value" popup so an unattended run
+        # cannot deadlock waiting for a click. Best-effort.
+        try:
+            self._sw.SetUserPreferenceToggle(SW_TOGGLE_INPUT_DIM_VAL_ON_CREATE, False)
+        except pythoncom.com_error:
+            pass
+
+    def _revision(self):
+        # On the early-bound wrapper RevisionNumber may come back as a property
+        # (string) or as a method, depending on how makepy generated it; handle
+        # both. See Docs/PROGRESS.md.
+        rev = self._sw.RevisionNumber
+        return rev() if callable(rev) else rev
+
+    def _require_model(self):
+        if self._model is None:
+            raise SolidWorksError("Geen actief part. Roep eerst 'new_part' aan.")
+        return self._model
+
+    # --- status ---------------------------------------------------------------
+
+    def get_status(self) -> dict:
+        sw = self._ensure()
+        active = binding.wrap(sw.ActiveDoc, self._mod.IModelDoc2)
+        active_title = active.GetTitle() if active is not None else None
+        return {
+            "ok": True,
+            "connected": True,
+            "revision": self._revision(),
+            "active_document": active_title,
+            "current_part": self._model.GetTitle() if self._model is not None else None,
+        }
+
+    # --- document lifecycle ---------------------------------------------------
+
+    def new_part(self) -> dict:
+        """Create a new empty part; it becomes the current document."""
+        sw = self._ensure()
+        template = sw.GetUserPreferenceStringValue(SW_PREF_DEFAULT_TEMPLATE_PART)
+        model = None
+        if template and os.path.isfile(template):
+            model = binding.wrap(sw.NewDocument(template, 0, 0, 0), self._mod.IModelDoc2)
+        if model is None:
+            # Fallback avoids a "template not found" modal dialog.
+            model = binding.wrap(sw.NewPart(), self._mod.IModelDoc2)
+        if model is None:
+            raise SolidWorksError("Kon geen nieuw part-document maken (template + NewPart faalden).")
+        self._model = model
+        return {"ok": True, "title": model.GetTitle()}
+
+    def close_part(self, save: bool = False) -> dict:
+        """Close the current part. CloseDoc never prompts; save is not implemented yet."""
+        model = self._require_model()
+        if save:
+            raise SolidWorksError("Opslaan bij sluiten is nog niet ondersteund; gebruik 'export'.")
+        title = model.GetTitle()
+        self._sw.CloseDoc(title)
+        self._model = None
+        return {"ok": True, "closed": title}
+
+    # --- geometry -------------------------------------------------------------
+
+    def _first_ref_plane(self):
+        """First reference plane via tree walk (language-independent: 'RefPlane').
+
+        Avoids SelectByID2('Front Plane', ...), which breaks on non-English
+        installs. In a fresh part the first RefPlane is the Front plane.
+        """
+        feat = binding.wrap(self._model.FirstFeature(), self._mod.IFeature)
+        while feat is not None:
+            try:
+                if feat.GetTypeName2() == "RefPlane":
+                    return feat
+            except pythoncom.com_error:
+                pass
+            feat = binding.wrap(feat.GetNextFeature(), self._mod.IFeature)
+        return None
+
+    def add_box(self, width_mm: float, height_mm: float, depth_mm: float,
+                name: str = "BlockExtrude") -> dict:
+        """Sketch a rectangle on the first plane and extrude it; returns mass props.
+
+        The extrude feature gets the stable name `name` so its depth dimension is
+        addressable as 'D1@<name>' (used by set_dimension) regardless of language.
+        NOTE: only the depth is parametric in v0. The rectangle width/height are
+        not driven dimensions, so they cannot be changed via set_dimension yet;
+        rebuild the box to resize them.
+        """
+        model = self._require_model()
+        for value, label in ((width_mm, "width"), (height_mm, "height"), (depth_mm, "depth")):
+            if value <= 0:
+                raise SolidWorksError(f"{label} moet > 0 zijn (kreeg {value}).")
+
+        plane = self._first_ref_plane()
+        if plane is None:
+            raise SolidWorksError("Geen reference plane gevonden in de feature tree.")
+        if not plane.Select2(False, 0):
+            raise SolidWorksError("Kon de reference plane niet selecteren.")
+
+        sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
+        sk.InsertSketch(True)
+        rect = sk.CreateCornerRectangle(0.0, 0.0, 0.0, mm_to_m(width_mm), mm_to_m(height_mm), 0.0)
+        model.ClearSelection2(True)
+        sk.InsertSketch(True)  # close the sketch (it stays selected for the extrude)
+        if not rect:
+            # Fail at the true root cause (empty sketch) instead of later at the extrude.
+            raise SolidWorksError("Rechthoek-sketch mislukte: CreateCornerRectangle gaf geen segmenten.")
+
+        feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
+        extrude = feat_mgr.FeatureExtrusion3(
+            True, False, False,        # Sd (single dir), Flip, Dir
+            SW_END_COND_BLIND, 0,      # T1, T2 (end conditions)
+            mm_to_m(depth_mm), 0.0,    # D1 (depth), D2
+            False, False,              # Dchk1, Dchk2
+            False, False,              # Ddir1, Ddir2
+            0.0, 0.0,                  # Dang1, Dang2 (draft, radians)
+            False, False,              # OffsetReverse1, OffsetReverse2
+            False, False,              # TranslateSurface1, TranslateSurface2
+            True,                      # Merge
+            True,                      # UseFeatScope
+            True,                      # UseAutoSelect
+            SW_START_SKETCH_PLANE,     # T0 (start condition)
+            0.0,                       # StartOffset
+            False,                     # FlipStartOffset
+        )
+        if extrude is None:
+            raise SolidWorksError("FeatureExtrusion3 mislukte (None). Is de sketch geldig?")
+        try:
+            extrude.Name = name
+        except pythoncom.com_error:
+            pass
+        feature_name = extrude.Name
+        model.ForceRebuild3(False)
+        return {
+            "ok": True,
+            "feature": feature_name,
+            "depth_dimension": f"D1@{feature_name}",
+            "mass_properties": self.get_mass_properties()["mass_properties"],
+        }
+
+    # --- parametric edit ------------------------------------------------------
+
+    def set_dimension(self, dimension_name: str, value_mm: float) -> dict:
+        """Set a named driving dimension (e.g. 'D1@BlockExtrude'), rebuild, remeasure."""
+        model = self._require_model()
+        dim = binding.wrap(model.Parameter(dimension_name), self._mod.IDimension)
+        if dim is None:
+            raise SolidWorksError(
+                f"Dimensie '{dimension_name}' niet gevonden. "
+                "Gebruik de 'D1@<feature>'-notatie."
+            )
+        old_mm = m_to_mm(dim.SystemValue)
+        dim.SystemValue = mm_to_m(value_mm)
+        rebuilt_ok = bool(model.ForceRebuild3(False))
+        # Read the value back: a driven/reference or equation-controlled dimension
+        # ignores the write silently, so the applied value can differ from the
+        # request. Report the actual value so the agent's loop sees a no-op.
+        applied_mm = m_to_mm(dim.SystemValue)
+        return {
+            "ok": True,
+            "dimension": dimension_name,
+            "old_value_mm": round(old_mm, 6),
+            "requested_value_mm": value_mm,
+            "new_value_mm": round(applied_mm, 6),
+            "applied": abs(applied_mm - value_mm) < 1e-6,
+            "rebuild_ok": rebuilt_ok,
+            "mass_properties": self.get_mass_properties()["mass_properties"],
+        }
+
+    def rebuild(self, top_only: bool = False) -> dict:
+        model = self._require_model()
+        rebuilt_ok = bool(model.ForceRebuild3(top_only))
+        return {"ok": True, "rebuild_ok": rebuilt_ok}
+
+    # --- measurement ----------------------------------------------------------
+
+    def get_mass_properties(self) -> dict:
+        """Volume/mass/area/centre-of-mass plus bounding box, all in SI->mm, forced SI."""
+        model = self._require_model()
+        ext = binding.wrap(model.Extension, self._mod.IModelDocExtension)
+        mp = binding.wrap(ext.CreateMassProperty(), self._mod.IMassProperty)
+        if mp is None:
+            raise SolidWorksError("CreateMassProperty gaf None terug.")
+        # Force SI (m, kg) regardless of document units. This is coupled to the
+        # fixed 1e9/1e6/m_to_mm factors below, so do NOT swallow a failure here:
+        # silently wrong units would be worse than a loud error.
+        mp.UseSystemUnits = True
+        if not mp.UseSystemUnits:
+            raise SolidWorksError("Kon mass properties niet in SI forceren (UseSystemUnits=False).")
+        com = mp.CenterOfMass
+        props = {
+            "volume_mm3": mp.Volume * 1e9,
+            "mass_kg": mp.Mass,
+            "surface_area_mm2": mp.SurfaceArea * 1e6,
+            "center_of_mass_mm": [round(m_to_mm(c), 6) for c in com],
+        }
+        props["bounding_box_mm"] = self._bounding_box()
+        return {"ok": True, "mass_properties": props}
+
+    def _bounding_box(self):
+        # Tight part box via IPartDoc.GetPartBox(NoConversion=True). IModelDoc2
+        # has no GetBox; that lives on IAssemblyDoc/IComponent/IFace. We QI the
+        # model to IPartDoc. True = no unit conversion -> system units (metres).
+        # Best-effort: a bbox failure must not break the core measurement.
+        try:
+            part = binding.wrap(self._model, self._mod.IPartDoc)
+            box = part.GetPartBox(True)
+        except pythoncom.com_error:
+            return None
+        if not box or len(box) < 6:
+            return None
+        xmin, ymin, zmin, xmax, ymax, zmax = (m_to_mm(v) for v in box[:6])
+        return {
+            "min_mm": [round(xmin, 4), round(ymin, 4), round(zmin, 4)],
+            "max_mm": [round(xmax, 4), round(ymax, 4), round(zmax, 4)],
+            "size_mm": [round(xmax - xmin, 4), round(ymax - ymin, 4), round(zmax - zmin, 4)],
+        }
+
+    def get_bounding_box(self) -> dict:
+        self._require_model()
+        return {"ok": True, "bounding_box_mm": self._bounding_box()}
+
+    # --- output ---------------------------------------------------------------
+
+    def export(self, path: str, file_format: str | None = None) -> dict:
+        """Export the current part (STEP/STL/IGES/Parasolid/3MF/image) via SaveAs3.
+
+        Silent (no overwrite prompt). Success is verified by checking the file
+        actually appears on disk, because SaveAs3's return code is unreliable.
+        """
+        model = self._require_model()
+        fmt = (file_format or os.path.splitext(path)[1].lstrip(".")).lower()
+        if fmt not in EXPORT_FORMATS:
+            raise SolidWorksError(
+                f"Onbekend exportformaat '{fmt}'. Toegestaan: {sorted(EXPORT_FORMATS)}."
+            )
+        abs_path = os.path.abspath(path)
+        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+        result = model.SaveAs3(abs_path, SW_SAVE_AS_CURRENT_VERSION, SW_SAVE_AS_OPTIONS_SILENT)
+        if not os.path.isfile(abs_path):
+            raise SolidWorksError(
+                f"Export mislukt: bestand niet aangemaakt ({abs_path}). SaveAs3 gaf {result}."
+            )
+        return {"ok": True, "path": abs_path, "format": fmt, "bytes": os.path.getsize(abs_path)}
+
+    def screenshot(self, path: str) -> dict:
+        """Isometric, zoom-to-fit screenshot of the current part to PNG/BMP/JPG.
+
+        Writes via the same SaveAs3 path as `export`, so the return shape matches:
+        {"ok", "path", "format", "bytes"} where "format" is the image extension.
+        """
+        model = self._require_model()
+        ext = os.path.splitext(path)[1].lstrip(".").lower()
+        if ext not in {"png", "bmp", "jpg", "tif"}:
+            raise SolidWorksError(f"Screenshot-extensie '{ext}' niet ondersteund (png/bmp/jpg/tif).")
+        try:
+            model.ShowNamedView2("", SW_VIEW_ISOMETRIC)  # best-effort orientation
+        except pythoncom.com_error:
+            pass
+        model.ViewZoomtofit2()
+        return self.export(path, ext)

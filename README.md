@@ -1,0 +1,124 @@
+# SolidWorks MCP
+
+An MCP server that drives a **locally running SolidWorks** instance over the COM
+API (pywin32), so an AI agent can build, measure and export parametric parts —
+and run a closed **build → measure → verify → correct** loop.
+
+The point isn't just "make geometry". Parametric CAD gives *hard, verifiable
+signals* (rebuild status, mass properties, measurements, bounding box), which
+makes an agentic correction loop realistic instead of "it looks about right".
+
+## Status (v0)
+
+Proven end-to-end against **SOLIDWORKS 2026 (3DEXPERIENCE R2026x)**:
+
+| Milestone | What it proves | State |
+|---|---|---|
+| M0 | COM connection to a running SolidWorks | ✅ |
+| M1 | new part → sketch rectangle → extrude → mass properties (volume matches hand calc) | ✅ |
+| M2 | change a named dimension → rebuild → volume changes predictably | ✅ |
+| M3 | full agent loop via the MCP server: build → measure → correct → export STEP/STL + screenshot | ✅ |
+
+See [Docs/PROGRESS.md](Docs/PROGRESS.md) for the detailed log and roadmap.
+
+## Requirements
+
+- Windows, with SolidWorks installed and a valid licence.
+- SolidWorks **running** (the server attaches to the active instance; it does not
+  launch one).
+- Python 3.11+.
+
+## Setup
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e .
+```
+
+This installs `pywin32` + the `mcp` SDK and the `solidworks-mcp` package
+(editable). The first COM call generates the SolidWorks typelib wrappers
+automatically.
+
+## Run the verification scripts
+
+With SolidWorks open:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\probe_connection.py     # M0
+.\.venv\Scripts\python.exe scripts\m1_block.py             # M1
+.\.venv\Scripts\python.exe scripts\m2_parametric.py        # M2
+.\.venv\Scripts\python.exe scripts\test_mcp_server.py      # M3 (full MCP loop over stdio)
+```
+
+`scripts/introspect_api.py` regenerates/inspects the installed typelib and prints
+verified enum values — run it if SolidWorks is upgraded and signatures change.
+
+## Use as an MCP server
+
+The server speaks MCP over **stdio**. Register it with an MCP client (e.g. Claude
+Desktop / Claude Code) using the venv's Python:
+
+```json
+{
+  "mcpServers": {
+    "solidworks": {
+      "command": "D:\\Ontwikkeling\\Solidworks-MCP\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "solidworks_mcp.server"]
+    }
+  }
+}
+```
+
+### Tools (v0)
+
+| Tool | Purpose |
+|---|---|
+| `get_status` | Is SolidWorks reachable? revision + active/current part |
+| `new_part` | Create a new empty part (becomes current) |
+| `add_box(width_mm, height_mm, depth_mm, name)` | Sketch rectangle + extrude; returns mass properties |
+| `set_dimension(dimension_name, value_mm)` | Change a named driving dim (e.g. `D1@BlockExtrude`), rebuild, remeasure |
+| `rebuild(top_only)` | Force rebuild, report errors |
+| `get_mass_properties` | Volume, mass, surface area, centre of mass, bounding box |
+| `get_bounding_box` | Tight part bounding box (min/max/size, mm) |
+| `export(path, file_format)` | STEP/STL/IGES/Parasolid/3MF (silent; verifies file on disk) |
+| `screenshot(path)` | Isometric, zoom-to-fit PNG/BMP/JPG |
+| `close_part(save)` | Close the current part |
+
+All linear dimensions are **millimetres**; the server converts to/from the
+SolidWorks-internal metre/radian units at the boundary.
+
+## Architecture
+
+```
+src/solidworks_mcp/
+  binding.py     early-binding plumbing (wrap raw dispatches in generated classes)
+  com_worker.py  one dedicated STA thread; all COM calls serialised through it
+  session.py     SolidWorks operations (must run on the COM thread)
+  server.py      FastMCP tools that delegate to session via the worker
+  constants.py   enum values read from the installed typelib (verified)
+  units.py       mm<->m, deg<->rad
+  errors.py      SolidWorksError -> agent-facing {ok:false,error}
+```
+
+Two non-obvious design decisions, both load-bearing:
+
+1. **Early binding is mandatory.** On this build `GetActiveObject` returns a
+   dispatch whose `GetTypeInfo()` fails, so `EnsureDispatch`/`CastTo` cannot infer
+   types and pure late binding breaks (`IModelDoc2.FirstFeature` →
+   `DISP_E_MEMBERNOTFOUND`). We generate makepy wrappers from the installed
+   typelib and wrap each raw dispatch in the right interface class; calls then go
+   by dispid via `InvokeTypes`, bypassing name resolution. See `binding.py`.
+
+2. **A dedicated COM thread.** COM is STA and thread-affine. The MCP server runs
+   on asyncio, so all COM work is pinned to one worker thread (`com_worker.py`)
+   that handlers post to and await — actively enforcing the "one COM session,
+   single-threaded" rule that does not hold automatically in an async server.
+
+## Known limitations / roadmap
+
+- v0 builds **boxes** only. Next: generic sketches, revolve, fillet, **holes /
+  cut-extrude on a face**, equations (M4).
+- Plane selection uses a language-independent feature-tree walk; arbitrary face
+  selection is not implemented yet.
+- Assemblies, interference detection, drawings and Simulation (FEA) are out of
+  scope for v0 (M5).
