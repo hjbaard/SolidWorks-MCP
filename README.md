@@ -95,6 +95,7 @@ Desktop / Claude Code) using the venv's Python:
 | `add_hole(diameter_mm, x_mm, y_mm, name)` | Cut a circular through-hole at (x, y) through the depth axis |
 | `add_hole_on_face(diameter_mm, face, x_mm, y_mm, z_mm, name)` | Through-hole on ANY planar face at a 3D point (side holes, etc.) |
 | `cut_profile(points_mm, depth_mm, name)` | Cut a polygon pocket/slot from the +Z face (blind or through) |
+| `cut_profile_on_face(points_mm, face, depth_mm, name)` | Cut a polygon pocket on ANY face (3D points on the face) |
 | `add_fillet(radius_mm, edges, name)` | Round edges (`edges`: `all`, axis `x`/`y`/`z`, or indices `"2,5"`) |
 | `add_chamfer(distance_mm, edges, name)` | Chamfer edges at 45° (`edges`: `all`, axis, or indices) |
 | `add_shell(thickness_mm, open_face)` | Hollow to a wall thickness; open a face (`+z`/…) or `none` |
@@ -148,8 +149,10 @@ Two non-obvious design decisions, both load-bearing:
   extruded profiles**, **holes**, **polygon pockets/slots** (`cut_profile`),
   **fillets**, **chamfers**, **shells**, **linear + circular patterns** (bolt
   circles); plus **equations**, **materials**, geometry **inspection**, and
-  **save/open** of `.sldprt`, and **holes on any planar face** (model→sketch
-  transform). Next: pockets on any face, mirror, sweep/loft, sketch arcs/splines.
+  **save/open** of `.sldprt`, and **holes + pockets on any planar face**
+  (model→sketch transform). Next: sweep/loft, sketch arcs/splines, round-flange
+  bolt circles (circular pattern about non-Z axes). Mirror is shelved — both API
+  routes fail on this build; an AI mirrors by placing features symmetrically.
 - Selection: plane walk, face-by-normal/direction (`_planar_face_by_normal`,
   `+z`/…), and edge selection by axis **or explicit index** (`_select_edges`).
   `list_faces`/`list_edges` let an agent inspect geometry before selecting;

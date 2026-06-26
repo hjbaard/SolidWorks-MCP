@@ -202,14 +202,16 @@ IEquationMgr.Add2(count, eq, solve=True). '"D1@BlockExtrude" = 2 * 12.5' drives
 depth to 25 -> 20000 mm³ (expression evaluated). Persists a relation, unlike the
 one-off set_dimension.
 
-### Mirror — BLOCKED (not shipped)
-Offset reference plane creation works (InsertRefPlane with Distance constraint=8,
-offset in metres, after selecting the Nth ref plane: order is Front/Top/Right).
-But InsertMirrorFeature2 keeps returning None despite the mirror plane AND the
-seed feature both selecting True, across many mark combos (0/1/2/4) and both
-offset-flip directions. The mirror CALL itself is the snag (not selection) -
-needs a different approach (older InsertMirrorFeature, or a mirror-feature-data
-definition object). Revisit with fresh eyes.
+### Mirror — SHELVED (both routes blocked on this build)
+Offset reference plane creation works (InsertRefPlane, Distance constraint=8,
+metres, after selecting the Nth ref plane: order Front/Top/Right). But:
+1. `InsertMirrorFeature`/`2` return None across all mark (0/1/2/4) and flip combos
+   despite plane + seed both selecting True — the CALL is the snag, not selection.
+2. The definition-object route also fails: `IFeatureManager.CreateDefinition`
+   returns None for EVERY type id tried (4/7/12/98) on this 3DEXPERIENCE build.
+Conclusion: shelved. It's a convenience an AI works around by placing features
+symmetrically itself (compute mirrored coords + add_hole/add_hole_on_face) or via
+a pattern. Revisit only if a macro-recorded sequence reveals a working path.
 
 ## Next
 
