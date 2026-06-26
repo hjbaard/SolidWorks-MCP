@@ -54,6 +54,18 @@ With SolidWorks open:
 `scripts/introspect_api.py` regenerates/inspects the installed typelib and prints
 verified enum values — run it if SolidWorks is upgraded and signatures change.
 
+## Tests
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest                 # all tests
+.\.venv\Scripts\python.exe -m pytest -m "not solidworks"   # fast unit layer, no SolidWorks
+```
+
+Two layers: **pure unit tests** (units, selector/direction parsing, polygon
+cleaning) run anywhere; **integration tests** (`solidworks` marker) drive a
+running SolidWorks and verify each feature's volume against a hand calc — they
+auto-skip if SolidWorks isn't reachable. `pip install -e .[dev]` for pytest.
+
 ## Use as an MCP server
 
 The server speaks MCP over **stdio**. Register it with an MCP client (e.g. Claude

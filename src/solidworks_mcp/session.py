@@ -117,16 +117,28 @@ class SolidWorksSession:
         self._model = None
         return {"ok": True, "closed": title}
 
+    def _write_via_saveas3(self, abs_path: str) -> None:
+        """SaveAs3 to abs_path (silent) and verify the file was actually (re)written.
+
+        Checks the modification time advanced, so a silent SaveAs3 failure over a
+        pre-existing file (locked/read-only target) is not reported as success.
+        """
+        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+        before = os.path.getmtime(abs_path) if os.path.isfile(abs_path) else None
+        result = self._model.SaveAs3(abs_path, SW_SAVE_AS_CURRENT_VERSION, SW_SAVE_AS_OPTIONS_SILENT)
+        if not os.path.isfile(abs_path) or (before is not None and os.path.getmtime(abs_path) == before):
+            raise SolidWorksError(
+                f"Schrijven mislukt: '{abs_path}' is niet (her)schreven; SaveAs3 gaf {result}. "
+                "Is het bestand open of vergrendeld?"
+            )
+
     def save_part(self, path: str) -> dict:
         """Save the current part to a native .sldprt file (silent)."""
-        model = self._require_model()
+        self._require_model()
         abs_path = os.path.abspath(path)
         if not abs_path.lower().endswith(".sldprt"):
             abs_path += ".sldprt"
-        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-        result = model.SaveAs3(abs_path, SW_SAVE_AS_CURRENT_VERSION, SW_SAVE_AS_OPTIONS_SILENT)
-        if not os.path.isfile(abs_path):
-            raise SolidWorksError(f"Opslaan mislukt: bestand niet aangemaakt ({abs_path}); SaveAs3 gaf {result}.")
+        self._write_via_saveas3(abs_path)
         return {"ok": True, "path": abs_path, "bytes": os.path.getsize(abs_path)}
 
     def open_part(self, path: str) -> dict:
@@ -360,6 +372,55 @@ class SolidWorksSession:
         result["depth_dimension"] = f"D1@{result['feature']}"
         return result
 
+    @staticmethod
+    def _clean_polygon(points_mm) -> list:
+        """Distinct polygon vertices [(x, y), ...]; pure (no COM), unit-testable.
+
+        Drops coincident consecutive points and a trailing point equal to the
+        first (so open and explicitly-closed rings both work). Raises if fewer
+        than 3 distinct vertices remain.
+        """
+        cleaned = []
+        for x, y in points_mm:
+            p = (float(x), float(y))
+            if not cleaned or abs(p[0] - cleaned[-1][0]) > 1e-9 or abs(p[1] - cleaned[-1][1]) > 1e-9:
+                cleaned.append(p)
+        if (len(cleaned) >= 2 and abs(cleaned[0][0] - cleaned[-1][0]) < 1e-9
+                and abs(cleaned[0][1] - cleaned[-1][1]) < 1e-9):
+            cleaned.pop()  # drop an explicit closing point
+        if len(cleaned) < 3:
+            raise SolidWorksError(
+                f"Profiel heeft minstens 3 verschillende punten nodig (kreeg {len(cleaned)})."
+            )
+        return cleaned
+
+    def _sketch_closed_polygon(self, sk, points_mm) -> None:
+        """Open a sketch and draw a closed polygon from [x, y] points (mm).
+
+        Tolerant of open and explicitly-closed rings (see _clean_polygon); fails
+        loudly on a bad segment.
+        """
+        cleaned = self._clean_polygon(points_mm)
+        sk.InsertSketch(True)
+        n = len(cleaned)
+        for i in range(n):
+            x1, y1 = cleaned[i]
+            x2, y2 = cleaned[(i + 1) % n]
+            if not sk.CreateLine(mm_to_m(x1), mm_to_m(y1), 0.0, mm_to_m(x2), mm_to_m(y2), 0.0):
+                raise SolidWorksError(f"Kon lijnsegment {i} ({x1},{y1})->({x2},{y2}) niet maken.")
+        self._model.ClearSelection2(True)
+        sk.InsertSketch(True)  # close the sketch
+
+    def _select_planar_face(self, body, normal, label: str):
+        """Select the planar face whose outward normal matches `normal`; raise if none."""
+        face = self._planar_face_by_normal(body, normal)
+        if face is None:
+            raise SolidWorksError(f"Geen planair {label}-vlak gevonden.")
+        self._model.ClearSelection2(True)
+        if not binding.wrap(face, self._mod.IEntity).Select4(False, None):
+            raise SolidWorksError(f"Kon het {label}-vlak niet selecteren.")
+        return face
+
     def add_extruded_profile(self, points_mm: list, depth_mm: float,
                              name: str = "Extrude") -> dict:
         """Extrude a closed polygon profile into a solid on the first plane.
@@ -371,10 +432,10 @@ class SolidWorksSession:
         (volume = polygon area * depth).
         """
         model = self._require_model()
-        if not points_mm or len(points_mm) < 3:
-            raise SolidWorksError("Een profiel heeft minstens 3 punten nodig.")
         if depth_mm <= 0:
             raise SolidWorksError(f"depth moet > 0 zijn (kreeg {depth_mm}).")
+        if not points_mm:
+            raise SolidWorksError("Geen profielpunten opgegeven.")
 
         plane = self._first_ref_plane()
         if plane is None:
@@ -383,14 +444,7 @@ class SolidWorksSession:
             raise SolidWorksError("Kon de reference plane niet selecteren.")
 
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
-        sk.InsertSketch(True)
-        count = len(points_mm)
-        for i in range(count):
-            x1, y1 = points_mm[i]
-            x2, y2 = points_mm[(i + 1) % count]  # last segment closes the loop
-            sk.CreateLine(mm_to_m(x1), mm_to_m(y1), 0.0, mm_to_m(x2), mm_to_m(y2), 0.0)
-        model.ClearSelection2(True)
-        sk.InsertSketch(True)  # close the sketch
+        self._sketch_closed_polygon(sk, points_mm)
 
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
         extrude = feat_mgr.FeatureExtrusion3(
@@ -511,13 +565,7 @@ class SolidWorksSession:
             raise SolidWorksError(f"diameter moet > 0 zijn (kreeg {diameter_mm}).")
 
         body = self._solid_body()
-        face = self._planar_face_by_normal(body, (0.0, 0.0, 1.0))
-        if face is None:
-            raise SolidWorksError("Geen +Z-vlak gevonden om in te boren.")
-        entity = binding.wrap(face, self._mod.IEntity)
-        model.ClearSelection2(True)
-        if not entity.Select4(False, None):
-            raise SolidWorksError("Kon het +Z-vlak niet selecteren.")
+        self._select_planar_face(body, (0.0, 0.0, 1.0), "+Z")
 
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
         sk.InsertSketch(True)  # the sketch is created on the selected face
@@ -563,25 +611,13 @@ class SolidWorksSession:
         the way through when depth_mm is None. Returns mass properties.
         """
         model = self._require_model()
-        if not points_mm or len(points_mm) < 3:
-            raise SolidWorksError("Een profiel heeft minstens 3 punten nodig.")
+        if not points_mm:
+            raise SolidWorksError("Geen profielpunten opgegeven.")
 
         body = self._solid_body()
-        face = self._planar_face_by_normal(body, (0.0, 0.0, 1.0))
-        if face is None:
-            raise SolidWorksError("Geen +Z-vlak gevonden om in te frezen.")
-        model.ClearSelection2(True)
-        if not binding.wrap(face, self._mod.IEntity).Select4(False, None):
-            raise SolidWorksError("Kon het +Z-vlak niet selecteren.")
-
+        self._select_planar_face(body, (0.0, 0.0, 1.0), "+Z")
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
-        sk.InsertSketch(True)
-        count = len(points_mm)
-        for i in range(count):
-            x1, y1 = points_mm[i]
-            x2, y2 = points_mm[(i + 1) % count]
-            sk.CreateLine(mm_to_m(x1), mm_to_m(y1), 0.0, mm_to_m(x2), mm_to_m(y2), 0.0)
-        sk.InsertSketch(True)  # close the sketch
+        self._sketch_closed_polygon(sk, points_mm)
 
         if depth_mm is None:
             t1, d1 = SW_END_COND_THROUGH_ALL, 0.0
@@ -679,14 +715,11 @@ class SolidWorksSession:
             raise SolidWorksError(f"thickness moet > 0 zijn (kreeg {thickness_mm}).")
 
         body = self._solid_body()
-        model.ClearSelection2(True)
         opened = (open_face or "none").lower()
-        if opened != "none":
-            face = self._planar_face_by_normal(body, self._parse_direction(opened))
-            if face is None:
-                raise SolidWorksError(f"Geen planair {opened}-vlak gevonden om te openen.")
-            if not binding.wrap(face, self._mod.IEntity).Select4(False, None):
-                raise SolidWorksError(f"Kon het {opened}-vlak niet selecteren.")
+        if opened == "none":
+            model.ClearSelection2(True)
+        else:
+            self._select_planar_face(body, self._parse_direction(opened), opened)
 
         # Outward=False: the wall grows inward, so the outer size is unchanged.
         model.InsertFeatureShell(mm_to_m(thickness_mm), False)
@@ -697,10 +730,15 @@ class SolidWorksSession:
         return {"ok": True, "open_face": opened, "rebuild_ok": rebuilt_ok, "mass_properties": props}
 
     def _first_edge_along(self, body, direction):
-        """First straight edge parallel to `direction`; returns (p1, p2) in metres."""
+        """First straight edge parallel to `direction`; returns (p1, p2, dispatch).
+
+        Returns the edge's raw dispatch too so the caller can select the exact
+        edge it analysed (keeping a computed flip in lockstep with the selection),
+        rather than re-resolving by coordinate. (None, None, None) if no match.
+        """
         edges = body.GetEdges()
         if not edges:
-            return None, None
+            return None, None, None
         if not isinstance(edges, (list, tuple)):
             edges = [edges]
         for edge_dispatch in edges:
@@ -716,19 +754,41 @@ class SolidWorksSession:
             dx, dy, dz = p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2]
             length = (dx * dx + dy * dy + dz * dz) ** 0.5
             if length > 1e-9 and abs(dx * direction[0] + dy * direction[1] + dz * direction[2]) / length > 0.999:
-                return p1, p2
-        return None, None
+                return p1, p2, edge_dispatch
+        return None, None, None
+
+    # Feature types that are NOT valid pattern seeds (folders, sketches, reference
+    # geometry, and finishing/repeat features). Patterning these is a no-op or
+    # nonsensical, so the default-seed walk skips them.
+    _NON_SEED_TYPES = {
+        "DetailCabinet", "Fillet", "Chamfer", "Shell",
+        "LPattern", "CircPattern", "LocalLPattern", "LocalCirPattern",
+        "MirrorSolid", "MirrorPattern", "RefPlane", "RefAxis",
+        "ProfileFeature", "OriginProfileFeature",
+    }
 
     def _last_feature_name(self) -> str:
-        """Name of the most recently added feature (the default pattern seed)."""
+        """Name of the most recent body-modifying feature (the default pattern seed).
+
+        Skips folders, sketches, reference geometry and finishing/repeat features
+        (fillet/chamfer/shell/patterns) so the default seed is a real boss/cut/
+        hole/revolve. Pass feature_name explicitly to override.
+        """
         feat = binding.wrap(self._model.FirstFeature(), self._mod.IFeature)
-        last = None
+        seed = None
         while feat is not None:
-            last = feat
+            try:
+                tname = feat.GetTypeName2() or ""
+            except pythoncom.com_error:
+                tname = ""
+            if tname and not tname.endswith("Folder") and tname not in self._NON_SEED_TYPES:
+                seed = feat
             feat = binding.wrap(feat.GetNextFeature(), self._mod.IFeature)
-        if last is None:
-            raise SolidWorksError("Geen feature gevonden om te patronen.")
-        return last.Name
+        if seed is None:
+            raise SolidWorksError(
+                "Geen patroonbaar feature gevonden; geef feature_name expliciet op."
+            )
+        return seed.Name
 
     def add_linear_pattern(self, count: int, spacing_mm: float, direction: str = "+x",
                            feature_name: str | None = None) -> dict:
@@ -747,18 +807,20 @@ class SolidWorksSession:
 
         dvec = self._parse_direction(direction)
         body = self._solid_body()
-        p1, p2 = self._first_edge_along(body, dvec)
+        p1, p2, edge_dispatch = self._first_edge_along(body, dvec)
         if p1 is None:
             raise SolidWorksError(f"Geen rechte rand evenwijdig aan {direction} gevonden.")
-        mid = ((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2, (p1[2] + p2[2]) / 2)
         along = (p2[0] - p1[0]) * dvec[0] + (p2[1] - p1[1]) * dvec[1] + (p2[2] - p1[2]) * dvec[2]
         flip = along < 0  # pattern follows the edge's p1->p2 dir; flip to match `direction`
 
         seed = feature_name or self._last_feature_name()
-        ext = binding.wrap(model.Extension, self._mod.IModelDocExtension)
+        selmgr = binding.wrap(model.SelectionManager, self._mod.ISelectionMgr)
         model.ClearSelection2(True)
-        if not ext.SelectByID2("", "EDGE", mid[0], mid[1], mid[2], False, 1, None, 0):
+        select_data = binding.wrap(selmgr.CreateSelectData(), self._mod.ISelectData)
+        select_data.Mark = 1
+        if not binding.wrap(edge_dispatch, self._mod.IEntity).Select4(False, select_data):
             raise SolidWorksError("Kon de richting-rand niet selecteren.")
+        ext = binding.wrap(model.Extension, self._mod.IModelDocExtension)
         if not ext.SelectByID2(seed, "BODYFEATURE", 0.0, 0.0, 0.0, True, 4, None, 0):
             raise SolidWorksError(f"Kon de seed-feature '{seed}' niet selecteren.")
 
@@ -770,8 +832,18 @@ class SolidWorksSession:
         return self._finish_feature(pattern, "LinearPattern", instances=count,
                                     seed=seed, direction=direction)
 
+    # A cylinder axis is accepted as a pattern axis only if its centre is within
+    # this many mm of the requested (cx, cy) -- avoids silently grabbing a far or
+    # unrelated curved face.
+    _CYL_AXIS_TOLERANCE_MM = 1.0
+
     def _cylindrical_face_near(self, body, cx_mm, cy_mm):
-        """The non-planar face whose bbox centre (x,y) is nearest (cx,cy); raw dispatch."""
+        """Raw dispatch of the CYLINDRICAL face whose bbox-centre (x,y) is nearest
+        (cx,cy) and within tolerance, else None.
+
+        Verifies the surface is actually a cylinder (not a cone/fillet/sphere) and
+        applies a distance floor, mirroring the rigour of _planar_face_by_normal.
+        """
         faces = body.GetFaces()
         if not faces:
             return None
@@ -781,7 +853,7 @@ class SolidWorksSession:
         for face_dispatch in faces:
             face = binding.wrap(face_dispatch, self._mod.IFace2)
             surface = binding.wrap(face.GetSurface(), self._mod.ISurface)
-            if surface is not None and surface.IsPlane():
+            if surface is None or not surface.IsCylinder():
                 continue
             box = face.GetBox()
             if not box or len(box) < 6:
@@ -791,6 +863,8 @@ class SolidWorksSession:
             d = (ccx - cx_mm) ** 2 + (ccy - cy_mm) ** 2
             if best_d is None or d < best_d:
                 best_d, best = d, face_dispatch
+        if best is None or best_d > self._CYL_AXIS_TOLERANCE_MM ** 2:
+            return None
         return best
 
     def add_circular_pattern(self, count: int, center_x_mm: float, center_y_mm: float,
@@ -900,14 +974,22 @@ class SolidWorksSession:
         model = self._require_model()
         part = binding.wrap(model, self._mod.IPartDoc)
         part.SetMaterialPropertyName2("", database, name)
-        model.ForceRebuild3(False)
-        props = self.get_mass_properties()["mass_properties"]
-        if abs(props["density_kg_m3"] - 1000.0) < 0.01:
+        rebuilt_ok = bool(model.ForceRebuild3(False))
+        # Verify by reading the applied name back (robust to re-assignment and to
+        # materials near 1000 kg/m^3, where a density heuristic would lie).
+        applied = part.GetMaterialPropertyName2("")
+        applied_name = applied[0] if isinstance(applied, (list, tuple)) else applied
+        if (applied_name or "").strip().lower() != name.strip().lower():
             raise SolidWorksError(
-                f"Materiaal '{name}' lijkt niet toegepast (dichtheid nog 1000 kg/m^3). "
+                f"Materiaal '{name}' niet toegepast (actief: '{applied_name}'). "
                 "Controleer de exacte naam, bv. '6061 Alloy', 'AISI 1020', 'ABS'."
             )
-        return {"ok": True, "material": name, "mass_properties": props}
+        return {
+            "ok": True,
+            "material": applied_name,
+            "rebuild_ok": rebuilt_ok,
+            "mass_properties": self.get_mass_properties()["mass_properties"],
+        }
 
     def rebuild(self, top_only: bool = False) -> dict:
         model = self._require_model()
@@ -1040,19 +1122,14 @@ class SolidWorksSession:
         Silent (no overwrite prompt). Success is verified by checking the file
         actually appears on disk, because SaveAs3's return code is unreliable.
         """
-        model = self._require_model()
+        self._require_model()
         fmt = (file_format or os.path.splitext(path)[1].lstrip(".")).lower()
         if fmt not in EXPORT_FORMATS:
             raise SolidWorksError(
                 f"Onbekend exportformaat '{fmt}'. Toegestaan: {sorted(EXPORT_FORMATS)}."
             )
         abs_path = os.path.abspath(path)
-        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-        result = model.SaveAs3(abs_path, SW_SAVE_AS_CURRENT_VERSION, SW_SAVE_AS_OPTIONS_SILENT)
-        if not os.path.isfile(abs_path):
-            raise SolidWorksError(
-                f"Export mislukt: bestand niet aangemaakt ({abs_path}). SaveAs3 gaf {result}."
-            )
+        self._write_via_saveas3(abs_path)
         return {"ok": True, "path": abs_path, "format": fmt, "bytes": os.path.getsize(abs_path)}
 
     def screenshot(self, path: str) -> dict:

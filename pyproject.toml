@@ -13,8 +13,17 @@ dependencies = [
     "mcp>=1.0",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
 [project.scripts]
 solidworks-mcp = "solidworks_mcp.server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "solidworks: integration test that needs a running SolidWorks instance",
+]

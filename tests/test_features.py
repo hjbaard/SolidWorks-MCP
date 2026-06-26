@@ -1,0 +1,140 @@
+"""Integration tests: each feature verified against a hand calculation.
+
+Marked `solidworks` -- they need a running SolidWorks (auto-skipped otherwise).
+This is the automated regression suite that replaces running the m4_*.py scripts
+by hand. Volumes are in mm^3.
+"""
+
+import math
+
+import pytest
+
+pytestmark = pytest.mark.solidworks
+
+
+def vol(result):
+    return result["mass_properties"]["volume_mm3"]
+
+
+def test_box(part):
+    assert abs(vol(part.add_box(40, 20, 10)) - 8000) < 0.01
+
+
+def test_set_dimension(part):
+    box = part.add_box(40, 20, 10)
+    assert abs(vol(part.set_dimension(box["depth_dimension"], 25)) - 20000) < 0.01
+
+
+def test_cylinder(part):
+    assert abs(vol(part.add_cylinder(20, 20)) - math.pi * 100 * 20) < 0.1
+
+
+def test_cone_frustum(part):
+    rb, rt, h = 10, 5, 20
+    expected = math.pi * h / 3 * (rb * rb + rb * rt + rt * rt)
+    assert abs(vol(part.add_cone(20, 10, 20)) - expected) < 0.1
+
+
+def test_extruded_profile(part):
+    # L-bracket, shoelace area 1800 mm^2
+    pts = [[0, 0], [60, 0], [60, 20], [20, 20], [20, 50], [0, 50]]
+    assert abs(vol(part.add_extruded_profile(pts, 10)) - 18000) < 0.1
+
+
+def test_extruded_profile_explicitly_closed(part):
+    # repeating the first point must give the same result (ring normalised)
+    pts = [[0, 0], [40, 0], [40, 20], [0, 0]]  # triangle, area 400
+    assert abs(vol(part.add_extruded_profile(pts, 10)) - 4000) < 0.1
+
+
+def test_hole(part):
+    part.add_box(40, 20, 10)
+    assert abs(vol(part.add_hole(8, 20, 10)) - (8000 - math.pi * 16 * 10)) < 0.1
+
+
+def test_hole_off_center_frame(part):
+    # (x,y) must be add_box coordinates: COM shifts away from a (10,6) hole
+    part.add_box(40, 20, 10)
+    com = part.add_hole(8, 10, 6)["mass_properties"]["center_of_mass_mm"]
+    assert com[0] > 20 and com[1] > 10
+
+
+def test_cut_profile_blind(part):
+    part.add_box(40, 20, 10)
+    pts = [[10, 5], [30, 5], [30, 15], [10, 15]]  # 20x10 pocket
+    assert abs(vol(part.cut_profile(pts, 4)) - (8000 - 200 * 4)) < 0.1
+
+
+def test_cut_profile_through(part):
+    part.add_box(40, 20, 10)
+    pts = [[10, 5], [30, 5], [30, 15], [10, 15]]
+    assert abs(vol(part.cut_profile(pts, None)) - (8000 - 200 * 10)) < 0.1
+
+
+def test_fillet_all_edges(part):
+    part.add_box(40, 20, 10)
+    r = part.add_fillet(2)
+    assert r["edges_filleted"] == 12 and vol(r) < 8000
+
+
+def test_fillet_one_axis(part):
+    part.add_box(40, 20, 10)
+    assert part.add_fillet(2, edges="z")["edges_filleted"] == 4
+
+
+def test_chamfer(part):
+    part.add_box(40, 20, 10)
+    assert vol(part.add_chamfer(2)) < 8000
+
+
+def test_shell_open(part):
+    part.add_box(40, 20, 10)
+    assert abs(vol(part.add_shell(2, "+z")) - (8000 - 36 * 16 * 8)) < 0.1
+
+
+def test_linear_pattern(part):
+    part.add_box(40, 20, 10)
+    part.add_hole(8, 10, 10)
+    r = part.add_linear_pattern(3, 10, "+x")
+    assert abs(vol(r) - (8000 - 3 * math.pi * 16 * 10)) < 0.1
+
+
+def test_circular_pattern(part):
+    part.add_box(40, 40, 10)
+    part.add_hole(8, 20, 20, name="CenterHole")
+    part.add_hole(6, 10, 20, name="BoltHole")
+    r = part.add_circular_pattern(4, 20, 20)
+    expected = 40 * 40 * 10 - math.pi * 16 * 10 - 4 * math.pi * 9 * 10
+    assert abs(vol(r) - expected) < 0.1
+
+
+def test_equation(part):
+    part.add_box(40, 20, 10)
+    assert abs(vol(part.set_equation('"D1@BlockExtrude" = 2 * 12.5')) - 20000) < 0.01
+
+
+def test_material(part):
+    part.add_box(40, 20, 10)
+    r = part.set_material("6061 Alloy")
+    assert abs(r["mass_properties"]["density_kg_m3"] - 2700) < 50
+
+
+def test_material_bad_name_fails(part):
+    part.add_box(40, 20, 10)
+    with pytest.raises(Exception):
+        part.set_material("Definitely Not A Material 1234")
+
+
+def test_inspect_counts(part):
+    part.add_box(40, 20, 10)
+    assert part.list_faces()["count"] == 6
+    assert part.list_edges()["count"] == 12
+
+
+def test_save_open_roundtrip(part, tmp_path):
+    part.add_box(40, 20, 10)
+    path = str(tmp_path / "rt.sldprt")
+    part.save_part(path)
+    part.close_part()
+    part.open_part(path)
+    assert abs(vol(part.get_mass_properties()) - 8000) < 0.01

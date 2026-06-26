@@ -132,6 +132,25 @@ A long autonomous run adding the capabilities an AI needs for advanced parts:
 - `scripts/demo_plate.py`: full autonomous design (plate + bore + 6-bolt circle +
   rounded corners), spec-verified + exported.
 
+### M4 — review hardening + pytest suite 🚧
+Adversarial review of the toolset code (14 findings). Applied the real ones:
+- polygon inputs normalised (`_clean_polygon`: drop coincident/closing dups,
+  require >= 3 distinct) shared by add_extruded_profile + cut_profile;
+- `set_material` verifies via GetMaterialPropertyName2 name read-back (not a
+  density heuristic) + returns rebuild_ok;
+- `_cylindrical_face_near` now requires ISurface.IsCylinder + a distance floor;
+- `_last_feature_name` skips folders/sketches/fillet/chamfer/shell/patterns so the
+  default pattern seed is a real boss/cut/hole;
+- `save_part`/`export` verify the file's mtime advanced (no stale-file success);
+- linear pattern selects the analysed edge directly (Select4+Mark), not by
+  coordinate; shared `_select_planar_face` helper for +Z/face selection.
+
+**Tests** (`tests/`, pytest): two layers. 13 pure unit tests (units, selector/
+direction parsing, polygon cleaning) run with no SolidWorks in ~0.02s
+(`pytest -m "not solidworks"`); 21 integration tests (marker `solidworks`,
+auto-skip if absent) verify every feature's volume against a hand calc. 34/34
+green. This replaces running the m4_*.py scripts by hand.
+
 ## Key API findings (this build)
 
 These were read from the installed typelib (`scripts/introspect_api.py`), not
