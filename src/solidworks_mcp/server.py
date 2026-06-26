@@ -123,6 +123,17 @@ async def cut_profile(points_mm: list, depth_mm: float | None = None, name: str 
 
 
 @mcp.tool()
+async def cut_profile_on_face(points_mm: list, face: str,
+                             depth_mm: float | None = None, name: str = "Cut") -> dict:
+    """Cut a polygon pocket/slot on ANY planar face: points_mm = [[x,y,z], ...] in mm.
+
+    The 3D points must lie on `face` ("+x"/"-x"/...); cut blind by depth_mm or
+    through when omitted. For side pockets/cutouts. Returns mass properties.
+    """
+    return await _call(_session.cut_profile_on_face, points_mm, face, depth_mm, name)
+
+
+@mcp.tool()
 async def add_fillet(radius_mm: float, edges: str = "all", name: str = "Fillet") -> dict:
     """Round edges of the current part with one constant radius (mm).
 

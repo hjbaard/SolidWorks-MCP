@@ -395,20 +395,28 @@ class SolidWorksSession:
             )
         return cleaned
 
+    @staticmethod
+    def _draw_polygon_segments(sk, pts_m) -> None:
+        """Draw closed-polygon CreateLine segments from 2D points in METRES.
+
+        The sketch must already be open. Shared by the +Z polygon path and the
+        any-face path (which supplies transformed sketch coordinates).
+        """
+        n = len(pts_m)
+        for i in range(n):
+            x1, y1 = pts_m[i]
+            x2, y2 = pts_m[(i + 1) % n]
+            if not sk.CreateLine(x1, y1, 0.0, x2, y2, 0.0):
+                raise SolidWorksError(f"Kon lijnsegment {i} niet maken.")
+
     def _sketch_closed_polygon(self, sk, points_mm) -> None:
         """Open a sketch and draw a closed polygon from [x, y] points (mm).
 
-        Tolerant of open and explicitly-closed rings (see _clean_polygon); fails
-        loudly on a bad segment.
+        Tolerant of open and explicitly-closed rings (see _clean_polygon).
         """
-        cleaned = self._clean_polygon(points_mm)
+        pts_m = [(mm_to_m(x), mm_to_m(y)) for x, y in self._clean_polygon(points_mm)]
         sk.InsertSketch(True)
-        n = len(cleaned)
-        for i in range(n):
-            x1, y1 = cleaned[i]
-            x2, y2 = cleaned[(i + 1) % n]
-            if not sk.CreateLine(mm_to_m(x1), mm_to_m(y1), 0.0, mm_to_m(x2), mm_to_m(y2), 0.0):
-                raise SolidWorksError(f"Kon lijnsegment {i} ({x1},{y1})->({x2},{y2}) niet maken.")
+        self._draw_polygon_segments(sk, pts_m)
         self._model.ClearSelection2(True)
         sk.InsertSketch(True)  # close the sketch
 
@@ -687,6 +695,49 @@ class SolidWorksSession:
         )
         if cut is None:
             raise SolidWorksError("FeatureCut4 mislukte (None). Ligt het profiel op het +Z-vlak?")
+        return self._finish_feature(cut, name)
+
+    def cut_profile_on_face(self, points_mm: list, face: str,
+                            depth_mm: float | None = None, name: str = "Cut") -> dict:
+        """Cut a polygon pocket/slot on ANY planar face, blind or through.
+
+        points_mm is a list of 3D [x, y, z] vertices (mm) that lie on the chosen
+        `face` ('+x'/'-x'/...); each is mapped into the face-sketch via the
+        model->sketch transform. The polygon is auto-closed; cut blind by depth_mm
+        or through when depth_mm is None. Returns mass properties.
+        """
+        model = self._require_model()
+        if not points_mm:
+            raise SolidWorksError("Geen profielpunten opgegeven.")
+
+        body = self._solid_body()
+        self._select_planar_face(body, self._parse_direction(face), face)
+        sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
+        sk.InsertSketch(True)
+        sketch = binding.wrap(sk.ActiveSketch, self._mod.ISketch)
+        uv_m = [self._model_to_sketch_uv(sketch, mm_to_m(p[0]), mm_to_m(p[1]), mm_to_m(p[2]))
+                for p in points_mm]
+        self._draw_polygon_segments(sk, self._clean_polygon(uv_m))
+        model.ClearSelection2(True)
+        sk.InsertSketch(True)
+
+        if depth_mm is None:
+            t1, d1 = SW_END_COND_THROUGH_ALL, 0.0
+        else:
+            if depth_mm <= 0:
+                raise SolidWorksError(f"depth moet > 0 zijn (kreeg {depth_mm}).")
+            t1, d1 = SW_END_COND_BLIND, mm_to_m(depth_mm)
+
+        feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
+        cut = feat_mgr.FeatureCut4(
+            True, False, False, t1, 0, d1, 0.0,
+            False, False, False, False, 0.0, 0.0,
+            False, False, False, False, False,
+            True, True, False, False, False,
+            SW_START_SKETCH_PLANE, 0.0, False, False,
+        )
+        if cut is None:
+            raise SolidWorksError(f"FeatureCut4 mislukte (None). Liggen de punten op het {face}-vlak?")
         return self._finish_feature(cut, name)
 
     def add_fillet(self, radius_mm: float, edges: str = "all", name: str = "Fillet") -> dict:

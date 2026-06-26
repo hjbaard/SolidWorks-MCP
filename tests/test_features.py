@@ -85,6 +85,14 @@ def test_cut_profile_through(part):
     assert abs(vol(part.cut_profile(pts, None)) - (8000 - 200 * 10)) < 0.1
 
 
+def test_cut_profile_on_side_face(part):
+    # 10(y) x 6(z) pocket on the +X face (x=40), 5 mm deep
+    part.add_box(40, 20, 10)
+    pts = [[40, 5, 2], [40, 15, 2], [40, 15, 8], [40, 5, 8]]
+    r = part.cut_profile_on_face(pts, "+x", 5)
+    assert abs(vol(r) - (8000 - 10 * 6 * 5)) < 0.1
+
+
 def test_fillet_all_edges(part):
     part.add_box(40, 20, 10)
     r = part.add_fillet(2)
