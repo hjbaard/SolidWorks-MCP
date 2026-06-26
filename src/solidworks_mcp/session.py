@@ -12,6 +12,7 @@ green by scripts/m1_block.py and scripts/m2_parametric.py.
 import os
 
 import pythoncom
+import win32com.client
 
 from . import binding
 from .constants import (
@@ -599,6 +600,56 @@ class SolidWorksSession:
         if cut is None:
             raise SolidWorksError(
                 "FeatureCut4 mislukte (None). Ligt (x, y) binnen het materiaal van het part?"
+            )
+        return self._finish_feature(cut, name)
+
+    def _model_to_sketch_uv(self, sketch, x_m, y_m, z_m):
+        """Map a 3D model point (m) to the active sketch's local 2D (u, v) (m).
+
+        Via ISketch.ModelToSketchTransform. The point must be a proper SAFEARRAY
+        VARIANT -- a plain Python list is mis-marshalled by CreatePoint.
+        """
+        xform = binding.wrap(sketch.ModelToSketchTransform, self._mod.IMathTransform)
+        mathutil = binding.wrap(self._sw.GetMathUtility(), self._mod.IMathUtility)
+        coords = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, [x_m, y_m, z_m])
+        p = binding.wrap(mathutil.CreatePoint(coords), self._mod.IMathPoint)
+        local = binding.wrap(p.MultiplyTransform(xform), self._mod.IMathPoint).ArrayData
+        return local[0], local[1]
+
+    def add_hole_on_face(self, diameter_mm: float, face: str,
+                         x_mm: float, y_mm: float, z_mm: float, name: str = "Hole") -> dict:
+        """Drill a through-hole on any planar face, centred at 3D point (x, y, z).
+
+        face is a direction '+x'/'-x'/'+y'/'-y'/'+z'/'-z' selecting the planar
+        face; (x_mm, y_mm, z_mm) is the hole centre in global (add_box) coordinates
+        and must lie on that face. The hole runs through all material along the
+        face normal. (add_hole is the +Z 2D convenience version of this.)
+        """
+        model = self._require_model()
+        if diameter_mm <= 0:
+            raise SolidWorksError(f"diameter moet > 0 zijn (kreeg {diameter_mm}).")
+
+        body = self._solid_body()
+        self._select_planar_face(body, self._parse_direction(face), face)
+        sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
+        sk.InsertSketch(True)
+        sketch = binding.wrap(sk.ActiveSketch, self._mod.ISketch)
+        u, v = self._model_to_sketch_uv(sketch, mm_to_m(x_mm), mm_to_m(y_mm), mm_to_m(z_mm))
+        circle = sk.CreateCircleByRadius(u, v, 0.0, mm_to_m(diameter_mm / 2.0))
+        sk.InsertSketch(True)
+        if not circle:
+            raise SolidWorksError("Cirkel-sketch mislukte: CreateCircleByRadius gaf niets terug.")
+
+        feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
+        cut = feat_mgr.FeatureCut4(
+            True, False, False, SW_END_COND_THROUGH_ALL, 0, 0.0, 0.0,
+            False, False, False, False, 0.0, 0.0,
+            False, False, False, False, False, True, True, False, False, False,
+            SW_START_SKETCH_PLANE, 0.0, False, False,
+        )
+        if cut is None:
+            raise SolidWorksError(
+                f"FeatureCut4 mislukte (None). Ligt ({x_mm}, {y_mm}, {z_mm}) op het {face}-vlak?"
             )
         return self._finish_feature(cut, name)
 

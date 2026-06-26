@@ -59,6 +59,20 @@ def test_hole_off_center_frame(part):
     assert com[0] > 20 and com[1] > 10
 
 
+def test_hole_on_x_face(part):
+    # +X face at x=40 (20x10); centre (40,10,5); hole runs through the 40 mm length
+    part.add_box(40, 20, 10)
+    r = part.add_hole_on_face(8, "+x", 40, 10, 5)
+    assert abs(vol(r) - (8000 - math.pi * 16 * 40)) < 0.1
+
+
+def test_hole_on_y_face(part):
+    # +Y face at y=20 (40x10); centre (20,20,5); hole runs through the 20 mm width
+    part.add_box(40, 20, 10)
+    r = part.add_hole_on_face(8, "+y", 20, 20, 5)
+    assert abs(vol(r) - (8000 - math.pi * 16 * 20)) < 0.1
+
+
 def test_cut_profile_blind(part):
     part.add_box(40, 20, 10)
     pts = [[10, 5], [30, 5], [30, 15], [10, 15]]  # 20x10 pocket

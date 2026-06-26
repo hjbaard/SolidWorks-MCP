@@ -101,6 +101,18 @@ async def add_hole(diameter_mm: float, x_mm: float, y_mm: float, name: str = "Ho
 
 
 @mcp.tool()
+async def add_hole_on_face(diameter_mm: float, face: str,
+                           x_mm: float, y_mm: float, z_mm: float, name: str = "Hole") -> dict:
+    """Drill a through-hole on ANY planar face, centred at 3D point (x, y, z) mm.
+
+    face is "+x"/"-x"/"+y"/"-y"/"+z"/"-z" (the face to drill); (x,y,z) is the
+    centre in global coordinates and must lie on that face. Enables side holes and
+    bolt circles on cylinder end-faces. Returns mass properties.
+    """
+    return await _call(_session.add_hole_on_face, diameter_mm, face, x_mm, y_mm, z_mm, name)
+
+
+@mcp.tool()
 async def cut_profile(points_mm: list, depth_mm: float | None = None, name: str = "Cut") -> dict:
     """Cut a polygonal pocket/slot from the +Z face: points_mm = [[x,y], ...] in mm.
 
