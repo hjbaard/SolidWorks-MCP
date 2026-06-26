@@ -30,6 +30,32 @@ get_status → new_part → add_box → measure → set_dimension → measure �
 bounding_box → export STEP (15.8 KB, valid AP203) + STL → screenshot (valid
 isometric render) → close_part. All checks pass.
 
+### M5 — end-to-end 3D-print part ✅
+`scripts/m5_demo_bracket.py`. Builds a functional mounting bracket through the full
+build->measure->verify loop, asserting volume vs a hand calc after EVERY step:
+100x80x8 plate -> Ø16 motor bore -> 4-bolt circle (add_circular_pattern)
+-> 4 corner counterbores -> R5 corner fillets -> 30x6 cable slot -> fine STL +
+screenshot. All 10 checkpoints matched exactly (final 58297.635 mm^3), bbox
+[100,80,8]. This is the whole-toolset validation that drove the 3D-print feature
+work; it composes 8 tools into one printable part. Gotcha found + fixed in the demo:
+a through slot adds tangent z-parallel edges, so add_fillet(edges="z") must run
+BEFORE the slot to round only the 4 box corners.
+
+### 3D-print features (2026-06-26)
+Demand-driven from the bracket demo (research workflow first; HoleWizard rejected as
+locale-fragile, same class as the mirror dead-end):
+- **add_counterbore_hole**: deterministic = clearance shank THROUGH_ALL + larger
+  coaxial pocket BLIND, two FeatureCut4 cuts on +Z (flush cap-head screws / heat-set
+  inserts). Factored `_cut_circle_on_z` (now shared with add_hole, the 3rd use).
+  Verified: Ø5 through + Ø10x4 cbore removes 431.97 mm^3.
+- **export() STL/3MF resolution**: quality 'coarse'|'fine' (default fine), or explicit
+  deviation_mm + angle_deg (Custom). Sets swSTLQuality/Deviation/AngleTolerance on
+  ISldWorks before SaveAs3 and RESTORES them after (they are global prefs). Verified:
+  fine STL > coarse file size; prefs unchanged after export. Mesh-only (stl/3mf).
+- Deferred (researched, ranked lower): countersink (needs a revolve about an axis at
+  arbitrary (x,y) -- the one real complication) and emboss/engrave text (font/transform
+  fragility, medium ROI).
+
 ### Hardening (post-review, 2026-06-25)
 Adversarial code-review pass (4 dimensions, findings verified). Applied:
 - **Call timeout** in `ComWorker.call` — a blocked COM call (modal dialog) now

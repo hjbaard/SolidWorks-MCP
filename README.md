@@ -18,7 +18,8 @@ Proven end-to-end against **SOLIDWORKS 2026 (3DEXPERIENCE R2026x)**:
 | M1 | new part → sketch rectangle → extrude → mass properties (volume matches hand calc) | ✅ |
 | M2 | change a named dimension → rebuild → volume changes predictably | ✅ |
 | M3 | full agent loop via the MCP server: build → measure → correct → export STEP/STL + screenshot | ✅ |
-| M4 | revolve, profiles, holes/pockets, fillet/chamfer, shell, patterns, equations, materials, save/open | 🚧 ongoing |
+| M4 | revolve, sweep, loft, profiles, holes/pockets/counterbores, slots, fillet/chamfer, shell, patterns, equations, materials, save/open | 🚧 ongoing |
+| M5 | end-to-end 3D-print part: build a functional mounting bracket through the full loop → verify every dimension → export a fine STL ([scripts/m5_demo_bracket.py](scripts/m5_demo_bracket.py)) | ✅ |
 
 See [Docs/PROGRESS.md](Docs/PROGRESS.md) for the detailed log and roadmap.
 
@@ -49,6 +50,7 @@ With SolidWorks open:
 .\.venv\Scripts\python.exe scripts\m1_block.py             # M1
 .\.venv\Scripts\python.exe scripts\m2_parametric.py        # M2
 .\.venv\Scripts\python.exe scripts\test_mcp_server.py      # M3 (full MCP loop over stdio)
+.\.venv\Scripts\python.exe scripts\m5_demo_bracket.py      # M5 (3D-print bracket, every step verified)
 ```
 
 `scripts/introspect_api.py` regenerates/inspects the installed typelib and prints
