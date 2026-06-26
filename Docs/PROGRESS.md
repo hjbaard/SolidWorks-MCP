@@ -153,10 +153,25 @@ internal cylinder); marks axis=1, seed=4; FeatureCircularPattern's Spacing is th
 PER-INSTANCE angle (360/count), not the total. This Select4+Mark machinery is now
 reusable for mirror and other selection-heavy features.
 
+### M4 — Equations 🚧
+`scripts/m4_equation.py` + `set_equation`: add a global equation via
+IEquationMgr.Add2(count, eq, solve=True). '"D1@BlockExtrude" = 2 * 12.5' drives
+depth to 25 -> 20000 mm³ (expression evaluated). Persists a relation, unlike the
+one-off set_dimension.
+
+### Mirror — BLOCKED (not shipped)
+Offset reference plane creation works (InsertRefPlane with Distance constraint=8,
+offset in metres, after selecting the Nth ref plane: order is Front/Top/Right).
+But InsertMirrorFeature2 keeps returning None despite the mirror plane AND the
+seed feature both selecting True, across many mark combos (0/1/2/4) and both
+offset-flip directions. The mirror CALL itself is the snag (not selection) -
+needs a different approach (older InsertMirrorFeature, or a mirror-feature-data
+definition object). Revisit with fresh eyes.
+
 ## Next
 
-- **Mirror** (`InsertMirrorFeature2`) — now tractable with the Select4+Mark
-  machinery; needs a mirror plane (a ref plane or planar face).
+- **Mirror**: crack InsertMirrorFeature2 (or use a definition object). The offset
+  reference plane half already works.
 - **Holes on any face** (beyond +Z): the face-sketch 2D frame differs per face,
   so (x,y) needs a model->sketch transform.
 - General revolve: arbitrary (radius, z) profiles; generic sketch primitives.

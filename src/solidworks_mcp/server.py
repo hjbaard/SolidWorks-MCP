@@ -154,6 +154,17 @@ async def set_dimension(dimension_name: str, value_mm: float) -> dict:
 
 
 @mcp.tool()
+async def set_equation(equation: str) -> dict:
+    """Add a global equation linking dimensions, then rebuild and remeasure.
+
+    A SolidWorks equation string, e.g. '"D1@BlockExtrude" = 25' or
+    '"D1@BlockExtrude" = 2 * "D1@Sketch1"'. Persists a relation (unlike
+    set_dimension). Returns mass properties.
+    """
+    return await _call(_session.set_equation, equation)
+
+
+@mcp.tool()
 async def rebuild(top_only: bool = False) -> dict:
     """Force a rebuild of the current part and report whether it rebuilt without errors."""
     return await _call(_session.rebuild, top_only)

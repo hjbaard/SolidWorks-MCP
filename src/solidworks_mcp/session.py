@@ -740,6 +740,35 @@ class SolidWorksSession:
             "mass_properties": self.get_mass_properties()["mass_properties"],
         }
 
+    def set_equation(self, equation: str) -> dict:
+        """Add a global equation linking dimensions, then rebuild and remeasure.
+
+        equation is a SolidWorks equation string, e.g.
+        '"D1@BlockExtrude" = 25' or '"D1@BlockExtrude" = 2 * "D1@Sketch1"'.
+        Unlike set_dimension (a one-off value), this persists a relation in the
+        model. Returns the resulting mass properties.
+        """
+        model = self._require_model()
+        eqmgr = binding.wrap(model.GetEquationMgr(), self._mod.IEquationMgr)
+        if eqmgr is None:
+            raise SolidWorksError("Geen EquationManager beschikbaar.")
+        count = eqmgr.GetCount()
+        count = count() if callable(count) else count
+        index = eqmgr.Add2(int(count), equation, True)  # append, solve immediately
+        if index < 0:
+            raise SolidWorksError(
+                f"Equation toevoegen mislukt (Add2 gaf {index}). Controleer de syntax, "
+                "bv. '\"D1@BlockExtrude\" = 25'."
+            )
+        rebuilt_ok = bool(model.ForceRebuild3(False))
+        return {
+            "ok": True,
+            "equation": equation,
+            "index": index,
+            "rebuild_ok": rebuilt_ok,
+            "mass_properties": self.get_mass_properties()["mass_properties"],
+        }
+
     def rebuild(self, top_only: bool = False) -> dict:
         model = self._require_model()
         rebuilt_ok = bool(model.ForceRebuild3(top_only))
