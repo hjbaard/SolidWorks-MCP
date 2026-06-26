@@ -169,6 +169,20 @@ centre bore + bolt hole + circular pattern, verified end to end (Ø80x15, Ø20 b
 6x Ø10 bolts -> 63617.25 mm³). Also a nice sanity check of the line-edge guard:
 add_fillet(edges="z") on a disc correctly finds 0 straight edges and raises.
 
+### M4 — slotted hole (first arc-based sketch) 🚧
+`cut_slot(length, width, x, y, angle, depth)`: a straight slot/obround cut on the
++Z face. The first sketch using **arcs** rather than only lines/circles, via
+`ISketchManager.CreateSketchSlot(CreationType, LengthType, Width, x1,y1,z1,
+x2,y2,z2, x3,y3,z3, CenterArcDirection, AddDimension)`. Empirically nailed (a
+throwaway `_debug_slot.py`): CreationType=line(0), LengthType=centre-to-centre(0),
+the **first two points are the two end-arc centres**, the **third point sits on the
+width side** (its perpendicular offset = W/2), and `Width` drives the slot width
+directly. We compute the three points from (centre, angle, length, width):
+centres at `centre ± (L/2)·(cosθ,sinθ)`, width point at `centre + (W/2)·(-sinθ,cosθ)`.
+Box 40x20x10, L=20/W=10 slot 5 mm deep -> removed `(L·W + π(W/2)²)·d` = 1392.70 ->
+6607.30 mm³ (matches hand calc). Cut blind or through via the existing FeatureCut4.
+This is the building block for rounded profiles generally.
+
 ## Key API findings (this build)
 
 These were read from the installed typelib (`scripts/introspect_api.py`), not

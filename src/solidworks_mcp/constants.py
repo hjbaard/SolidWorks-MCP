@@ -30,6 +30,10 @@ SW_FILLET_OPT_UNIFORM_RADIUS = 2
 # a symmetric chamfer). EqualDistance(16) alone is a silent no-op on this build.
 SW_CHAMFER_ANGLE_DISTANCE = 1
 
+# swSketchSlotCreationType_e / swSketchSlotLengthType_e
+SW_SLOT_CREATION_LINE = 0       # straight slot
+SW_SLOT_LENGTH_CENTER = 0       # length is centre-to-centre of the end arcs
+
 # swStartConditions_e
 SW_START_SKETCH_PLANE = 0
 

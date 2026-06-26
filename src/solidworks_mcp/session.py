@@ -9,6 +9,7 @@ language-independent plane walk, forced-SI mass properties) are the ones proven
 green by scripts/m1_block.py and scripts/m2_parametric.py.
 """
 
+import math
 import os
 
 import pythoncom
@@ -27,6 +28,8 @@ from .constants import (
     SW_PREF_DEFAULT_TEMPLATE_PART,
     SW_SAVE_AS_CURRENT_VERSION,
     SW_SAVE_AS_OPTIONS_SILENT,
+    SW_SLOT_CREATION_LINE,
+    SW_SLOT_LENGTH_CENTER,
     SW_START_SKETCH_PLANE,
     SW_TOGGLE_INPUT_DIM_VAL_ON_CREATE,
     SW_VIEW_ISOMETRIC,
@@ -778,6 +781,61 @@ class SolidWorksSession:
         )
         if cut is None:
             raise SolidWorksError(f"FeatureCut4 mislukte (None). Liggen de punten op het {face}-vlak?")
+        return self._finish_feature(cut, name)
+
+    def cut_slot(self, length_mm: float, width_mm: float, x_mm: float, y_mm: float,
+                 angle_deg: float = 0.0, depth_mm: float | None = None, name: str = "Slot") -> dict:
+        """Cut a straight slotted hole (obround) on the +Z face, blind or through.
+
+        Centred at (x_mm, y_mm); length_mm is centre-to-centre of the end arcs,
+        width_mm the slot width, angle_deg the orientation in the +Z plane. Cut
+        blind by depth_mm or through (None). Returns mass properties.
+        """
+        model = self._require_model()
+        if length_mm <= 0 or width_mm <= 0:
+            raise SolidWorksError("length en width moeten > 0 zijn.")
+
+        rad = deg_to_rad(angle_deg)
+        ax, ay = math.cos(rad), math.sin(rad)      # slot axis direction
+        px, py = -math.sin(rad), math.cos(rad)     # perpendicular (width side)
+        half = length_mm / 2.0
+        c1 = (x_mm - half * ax, y_mm - half * ay)
+        c2 = (x_mm + half * ax, y_mm + half * ay)
+        edge = (x_mm + (width_mm / 2.0) * px, y_mm + (width_mm / 2.0) * py)
+
+        body = self._solid_body()
+        self._select_planar_face(body, (0.0, 0.0, 1.0), "+Z")
+        sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
+        sk.InsertSketch(True)
+        seg = sk.CreateSketchSlot(
+            SW_SLOT_CREATION_LINE, SW_SLOT_LENGTH_CENTER, mm_to_m(width_mm),
+            mm_to_m(c1[0]), mm_to_m(c1[1]), 0.0,
+            mm_to_m(c2[0]), mm_to_m(c2[1]), 0.0,
+            mm_to_m(edge[0]), mm_to_m(edge[1]), 0.0,
+            1, False,
+        )
+        model.ClearSelection2(True)
+        sk.InsertSketch(True)
+        if not seg:
+            raise SolidWorksError("Slot-sketch mislukte: CreateSketchSlot gaf niets terug.")
+
+        if depth_mm is None:
+            t1, d1 = SW_END_COND_THROUGH_ALL, 0.0
+        else:
+            if depth_mm <= 0:
+                raise SolidWorksError(f"depth moet > 0 zijn (kreeg {depth_mm}).")
+            t1, d1 = SW_END_COND_BLIND, mm_to_m(depth_mm)
+
+        feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
+        cut = feat_mgr.FeatureCut4(
+            True, False, False, t1, 0, d1, 0.0,
+            False, False, False, False, 0.0, 0.0,
+            False, False, False, False, False,
+            True, True, False, False, False,
+            SW_START_SKETCH_PLANE, 0.0, False, False,
+        )
+        if cut is None:
+            raise SolidWorksError("FeatureCut4 mislukte (None). Past de sleuf op het +Z-vlak?")
         return self._finish_feature(cut, name)
 
     def add_fillet(self, radius_mm: float, edges: str = "all", name: str = "Fillet") -> dict:

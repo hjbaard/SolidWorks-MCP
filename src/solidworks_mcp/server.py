@@ -144,6 +144,20 @@ async def cut_profile_on_face(points_mm: list, face: str,
 
 
 @mcp.tool()
+async def cut_slot(length_mm: float, width_mm: float, x_mm: float, y_mm: float,
+                   angle_deg: float = 0.0, depth_mm: float | None = None,
+                   name: str = "Slot") -> dict:
+    """Cut a straight slotted hole (obround) on the +Z face.
+
+    Centred at (x_mm, y_mm); length_mm is centre-to-centre of the rounded ends,
+    width_mm the slot width, angle_deg its orientation in the +Z plane (0 = +X).
+    Cut blind by depth_mm or through when omitted. Returns mass properties.
+    """
+    return await _call(_session.cut_slot, length_mm, width_mm, x_mm, y_mm,
+                       angle_deg, depth_mm, name)
+
+
+@mcp.tool()
 async def add_fillet(radius_mm: float, edges: str = "all", name: str = "Fillet") -> dict:
     """Round edges of the current part with one constant radius (mm).
 

@@ -97,6 +97,7 @@ Desktop / Claude Code) using the venv's Python:
 | `add_hole_on_face(diameter_mm, face, x_mm, y_mm, z_mm, name)` | Through-hole on ANY planar face at a 3D point (side holes, etc.) |
 | `cut_profile(points_mm, depth_mm, name)` | Cut a polygon pocket/slot from the +Z face (blind or through) |
 | `cut_profile_on_face(points_mm, face, depth_mm, name)` | Cut a polygon pocket on ANY face (3D points on the face) |
+| `cut_slot(length_mm, width_mm, x_mm, y_mm, angle_deg, depth_mm, name)` | Cut a straight slotted hole (obround) on the +Z face at any angle |
 | `add_fillet(radius_mm, edges, name)` | Round edges (`edges`: `all`, axis `x`/`y`/`z`, or indices `"2,5"`) |
 | `add_chamfer(distance_mm, edges, name)` | Chamfer edges at 45° (`edges`: `all`, axis, or indices) |
 | `add_shell(thickness_mm, open_face)` | Hollow to a wall thickness; open a face (`+z`/…) or `none` |
@@ -151,8 +152,9 @@ Two non-obvious design decisions, both load-bearing:
   **fillets**, **chamfers**, **shells**, **linear + circular patterns** (bolt
   circles); plus **equations**, **materials**, geometry **inspection**, and
   **save/open** of `.sldprt`, **holes + pockets on any planar face**
-  (model→sketch transform), and **round flanges** (disc + bore + bolt circle).
-  Next: sweep/loft, sketch arcs/splines. Mirror is shelved — both API routes fail
+  (model→sketch transform), **round flanges** (disc + bore + bolt circle), and
+  **slotted holes** (`cut_slot`, obround at any angle — the first arc-based sketch).
+  Next: sweep/loft, sketch splines. Mirror is shelved — both API routes fail
   on this build; an AI mirrors by placing features symmetrically.
 - Selection: plane walk, face-by-normal/direction (`_planar_face_by_normal`,
   `+z`/…), and edge selection by axis **or explicit index** (`_select_edges`).

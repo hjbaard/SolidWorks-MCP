@@ -107,6 +107,27 @@ def test_cut_profile_on_side_face(part):
     assert abs(vol(r) - (8000 - 10 * 6 * 5)) < 0.1
 
 
+def test_cut_slot_blind(part):
+    # L=20 (centre-to-centre), W=10 obround at (20,10), 5 mm deep.
+    # area = L*W + pi*(W/2)^2 = 200 + 25*pi
+    part.add_box(40, 20, 10)
+    area = 20 * 10 + math.pi * 5 ** 2
+    assert abs(vol(part.cut_slot(20, 10, 20, 10, 0, 5)) - (8000 - area * 5)) < 0.5
+
+
+def test_cut_slot_through(part):
+    part.add_box(40, 20, 10)
+    area = 20 * 10 + math.pi * 5 ** 2
+    assert abs(vol(part.cut_slot(20, 10, 20, 10, 0, None)) - (8000 - area * 10)) < 1.0
+
+
+def test_cut_slot_angled_same_volume(part):
+    # A 90-degree slot fits the 20-wide plate and removes the same volume.
+    part.add_box(40, 20, 10)
+    area = 10 * 8 + math.pi * 4 ** 2
+    assert abs(vol(part.cut_slot(10, 8, 20, 10, 90, 5)) - (8000 - area * 5)) < 0.5
+
+
 def test_fillet_all_edges(part):
     part.add_box(40, 20, 10)
     r = part.add_fillet(2)
