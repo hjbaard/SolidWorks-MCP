@@ -126,6 +126,20 @@ async def add_swept_pipe(path_mm: list, diameter_mm: float,
 
 
 @mcp.tool()
+async def add_lofted_solid(profiles_mm: list, heights_mm: list, name: str = "Loft") -> dict:
+    """Loft (blend) 2+ closed polygon profiles on parallel planes stacked along +Z.
+
+    profiles_mm = [[[x,y],…], …] (mm), one polygon per profile in Front-plane
+    coords. heights_mm = the +Z offset (mm) of each profile, same length, strictly
+    increasing, starting at 0. A 2-profile loft is a ruled transition; 3+ blend
+    smoothly. Give profiles in a consistent vertex order to avoid twist. For
+    non-rotational transitions (round shapes: use add_revolved_profile/add_cone).
+    Returns mass properties. Use new_part first.
+    """
+    return await _call(_session.add_lofted_solid, profiles_mm, heights_mm, name)
+
+
+@mcp.tool()
 async def add_hole(diameter_mm: float, x_mm: float, y_mm: float, name: str = "Hole") -> dict:
     """Cut a circular through-hole at (x_mm, y_mm), through the part's depth axis.
 

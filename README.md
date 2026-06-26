@@ -94,6 +94,7 @@ Desktop / Claude Code) using the venv's Python:
 | `add_cone(bottom_diameter_mm, top_diameter_mm, height_mm, name)` | Cone/frustum by revolve (top Ø = 0 → full cone) |
 | `add_revolved_profile(profile_mm, angle_deg, name)` | Revolve any closed `(radius, height)` profile about the axis (shafts, vases, rings) |
 | `add_swept_pipe(path_mm, diameter_mm, bend_radius_mm, name)` | Sweep a round profile along a 2D path with rounded bends (pipes, tubes, rods) |
+| `add_lofted_solid(profiles_mm, heights_mm, name)` | Loft/blend 2+ polygon profiles on stacked parallel planes (transitions, adapters) |
 | `add_extruded_profile(points_mm, depth_mm, name)` | Extrude any closed polygon `[[x,y],…]` (brackets, sections) |
 | `add_hole(diameter_mm, x_mm, y_mm, name)` | Cut a circular through-hole at (x, y) through the depth axis |
 | `add_hole_on_face(diameter_mm, face, x_mm, y_mm, z_mm, name)` | Through-hole on ANY planar face at a 3D point (side holes, etc.) |
@@ -157,9 +158,10 @@ Two non-obvious design decisions, both load-bearing:
   (model→sketch transform), **round flanges** (disc + bore + bolt circle), and
   **slotted holes** (`cut_slot`, obround at any angle — the first arc-based sketch),
   **general revolves** (`add_revolved_profile`: any `(r,z)` profile → shafts,
-  vases, rings), and **swept pipes/tubes** (`add_swept_pipe`: a round profile along
-  a rounded 2D path). Next: loft, non-circular sweep profiles, sketch splines.
-  Mirror is shelved — both routes fail
+  vases, rings), **swept pipes/tubes** (`add_swept_pipe`: a round profile along
+  a rounded 2D path), and **lofts** (`add_lofted_solid`: blend stacked polygon
+  profiles → transitions/adapters). Next: non-circular sweep profiles, sketch
+  splines. Mirror is shelved — both routes fail
   on this build; an AI mirrors by placing features symmetrically.
 - Selection: plane walk, face-by-normal/direction (`_planar_face_by_normal`,
   `+z`/…), and edge selection by axis **or explicit index** (`_select_edges`).

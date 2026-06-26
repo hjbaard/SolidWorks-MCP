@@ -212,6 +212,25 @@ straight 50mm Ø10 = 3926.99, L-bend (R10) = 4375.29, U-bend (R8) = 7314.63 -- a
 exact. Determinism over the native sketch-fillet API (which needs fiddly per-vertex
 sketch-point selection). Path is planar (2D) for now; a 3D path is the next step.
 
+### M4 — loft (blend) 🚧
+`add_lofted_solid(profiles, heights)`: blend 2+ closed polygon profiles on parallel
+planes stacked along +Z. Via `IFeatureManager.InsertProtrusionBlend` (dispid 16, 17
+args). Per-profile a plane: profile 0 on Front, the rest on offset planes via
+`InsertRefPlane(swRefPlaneReferenceConstraint_Distance=8, distance_m, 0,0,0,0)`.
+Selection (the risk the review flagged, cracked empirically): each profile sketch
+selected with **mark 1, Append=True**, in stacking order; InsertProtrusionBlend then
+blends them. Verified: 2 squares (40->20 over 30) = **28000.00 exact** (ruled
+prismatoid h/6*(a^2+(a+b)^2+b^2), no twist for aligned profiles); coaxial circles
+(20->10 over 30) = 21990.4 vs 21991.1 frustum (circle tessellation). Note: 3+
+profiles blend SMOOTHLY through intermediates (40->20->40 gave 47657, not the
+piecewise 56000) -- only the 2-profile ruled case is exactly hand-calcable.
+Two gotchas: (1) **InsertRefPlane's return is a generic dispatch without Select2** --
+grab the new plane from the tree (`_last_ref_plane`) instead. (2) circles are
+already covered by revolve/cone, so loft's niche is NON-rotational transitions.
+Unlike mirror, loft works on this 3DEXPERIENCE build (the blocker there was the
+mirror-body API, not ref geometry). Added `_iter_features` generator (DRY for the
+new tree walks: `_profile_feature_names`, `_last_ref_plane`).
+
 ### Review-hardening pass (2026-06-26)
 Multi-agent adversarial review of cut_slot/add_revolved_profile/add_swept_pipe
 (24 findings, 18 confirmed). Fixes applied:

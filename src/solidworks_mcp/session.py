@@ -26,6 +26,7 @@ from .constants import (
     SW_FILLET_OPT_UNIFORM_RADIUS,
     SW_FILLET_TYPE_SIMPLE,
     SW_PREF_DEFAULT_TEMPLATE_PART,
+    SW_REF_PLANE_DISTANCE,
     SW_SAVE_AS_CURRENT_VERSION,
     SW_SAVE_AS_OPTIONS_SILENT,
     SW_SLOT_CREATION_LINE,
@@ -793,6 +794,83 @@ class SolidWorksSession:
             )
         return self._finish_feature(pipe, name)
 
+    def add_lofted_solid(self, profiles_mm: list, heights_mm: list, name: str = "Loft") -> dict:
+        """Loft (blend) 2+ closed polygon profiles on parallel planes stacked along +Z.
+
+        profiles_mm: a list of profiles, each a list of [x, y] vertices (mm) in the
+        Front-plane coordinate system (same convention as add_extruded_profile).
+        heights_mm: the +Z offset (mm) of each profile's plane; same length as
+        profiles_mm, strictly increasing, starting at 0. Each profile is auto-closed.
+        A 2-profile loft is a ruled transition; 3+ profiles blend smoothly through
+        the intermediate ones. Give profiles in a consistent vertex order/orientation
+        to avoid a twisted blend. Use for non-rotational transitions (revolve/cone
+        already cover round shapes). Returns mass properties. Use new_part first.
+        """
+        model = self._require_model()
+        if len(profiles_mm) != len(heights_mm):
+            raise SolidWorksError("profiles_mm en heights_mm moeten even lang zijn.")
+        if len(profiles_mm) < 2:
+            raise SolidWorksError("loft heeft minstens 2 profielen nodig.")
+        if heights_mm[0] != 0:
+            raise SolidWorksError("heights_mm[0] moet 0 zijn (eerste profiel op de Front plane).")
+        for lo, hi in zip(heights_mm, heights_mm[1:]):
+            if hi <= lo:
+                raise SolidWorksError("heights_mm moet strikt oplopend zijn.")
+        cleaned = [self._clean_polygon(p) for p in profiles_mm]  # validates >= 3 distinct pts
+
+        base = self._first_ref_plane()
+        if base is None:
+            raise SolidWorksError("Geen reference plane gevonden in de feature tree.")
+        feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
+        sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
+
+        sketch_names = []
+        for poly, height in zip(cleaned, heights_mm):
+            if not base.Select2(False, 0):
+                raise SolidWorksError("Kon de Front plane niet selecteren.")
+            if height != 0:
+                if feat_mgr.InsertRefPlane(SW_REF_PLANE_DISTANCE, mm_to_m(height), 0, 0.0, 0, 0.0) is None:
+                    raise SolidWorksError(f"Kon geen offsetvlak maken op z={height}.")
+                # InsertRefPlane's return is a generic dispatch without Select2; take
+                # the new plane from the tree instead.
+                plane = self._last_ref_plane()
+                if plane is None or not plane.Select2(False, 0):
+                    raise SolidWorksError(f"Kon het offsetvlak op z={height} niet selecteren.")
+            before = self._profile_feature_names()
+            sk.InsertSketch(True)
+            self._draw_polygon_segments(sk, [(mm_to_m(x), mm_to_m(y)) for x, y in poly])
+            sk.InsertSketch(True)
+            new_names = self._profile_feature_names() - before
+            if len(new_names) != 1:
+                raise SolidWorksError(f"Kon het profiel op z={height} niet identificeren.")
+            sketch_names.append(new_names.pop())
+
+        model.ClearSelection2(True)
+        ext = binding.wrap(model.Extension, self._mod.IModelDocExtension)
+        for sketch_name in sketch_names:
+            if not ext.SelectByID2(sketch_name, "SKETCH", 0.0, 0.0, 0.0, True, 1, None, 0):  # mark 1, append
+                raise SolidWorksError(f"Kon profiel '{sketch_name}' niet selecteren.")
+
+        loft = feat_mgr.InsertProtrusionBlend(
+            False,        # Closed
+            False,        # KeepTangency
+            False,        # ForceNonRational
+            1.0,          # TessToleranceFactor
+            0, 0,         # Start/EndMatchingType
+            0.0, 0.0,     # Start/EndTangentLength
+            False, False, # Start/EndTangentDir
+            False,        # IsThinBody
+            0.0, 0.0, 0,  # Thickness1, Thickness2, ThinType
+            True,         # Merge
+            True,         # UseFeatScope
+            True,         # UseAutoSelect
+        )
+        if loft is None:
+            raise SolidWorksError(
+                "InsertProtrusionBlend mislukte (None). Liggen de profielen geldig gestapeld?"
+            )
+        return self._finish_feature(loft, name)
+
     def add_hole(self, diameter_mm: float, x_mm: float, y_mm: float,
                  name: str = "Hole") -> dict:
         """Cut a circular through-hole at (x, y), straight through the depth axis.
@@ -1161,6 +1239,13 @@ class SolidWorksSession:
         "ProfileFeature", "OriginProfileFeature",
     }
 
+    def _iter_features(self):
+        """Yield each feature in the tree as a wrapped IFeature, in tree order."""
+        feat = binding.wrap(self._model.FirstFeature(), self._mod.IFeature)
+        while feat is not None:
+            yield feat
+            feat = binding.wrap(feat.GetNextFeature(), self._mod.IFeature)
+
     def _profile_feature_names(self) -> set:
         """Names of all sketches (ProfileFeature) in the tree.
 
@@ -1169,15 +1254,24 @@ class SolidWorksSession:
         a 'last ProfileFeature' assumption.
         """
         names = set()
-        feat = binding.wrap(self._model.FirstFeature(), self._mod.IFeature)
-        while feat is not None:
+        for feat in self._iter_features():
             try:
                 if feat.GetTypeName2() == "ProfileFeature":
                     names.add(feat.Name)
             except pythoncom.com_error:
                 pass
-            feat = binding.wrap(feat.GetNextFeature(), self._mod.IFeature)
         return names
+
+    def _last_ref_plane(self):
+        """The most recently created reference plane (e.g. a fresh loft offset plane)."""
+        found = None
+        for feat in self._iter_features():
+            try:
+                if feat.GetTypeName2() == "RefPlane":
+                    found = feat
+            except pythoncom.com_error:
+                pass
+        return found
 
     def _last_feature_name(self) -> str:
         """Name of the most recent body-modifying feature (the default pattern seed).

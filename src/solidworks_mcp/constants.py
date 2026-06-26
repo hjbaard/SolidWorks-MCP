@@ -34,6 +34,10 @@ SW_CHAMFER_ANGLE_DISTANCE = 1
 SW_SLOT_CREATION_LINE = 0       # straight slot
 SW_SLOT_LENGTH_CENTER = 0       # length is centre-to-centre of the end arcs
 
+# swRefPlaneReferenceConstraints_e -- offset a new plane a fixed distance from a
+# selected reference plane (for lofts: one parallel plane per profile).
+SW_REF_PLANE_DISTANCE = 8
+
 # swStartConditions_e
 SW_START_SKETCH_PLANE = 0
 

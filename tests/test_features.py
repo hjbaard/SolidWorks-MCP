@@ -113,6 +113,33 @@ def test_swept_pipe_zero_diameter_raises(part):
         part.add_swept_pipe([[0, 0], [50, 0]], 0)
 
 
+def test_loft_two_squares(part):
+    # ruled loft between square side 40 @ z=0 and side 20 @ z=30 -> prismatoid
+    # V = h/6 * (a^2 + (a+b)^2 + b^2) = 30/6 * (1600 + 3600 + 400) = 28000
+    sq_a = [[-20, -20], [20, -20], [20, 20], [-20, 20]]
+    sq_b = [[-10, -10], [10, -10], [10, 10], [-10, 10]]
+    got = vol(part.add_lofted_solid([sq_a, sq_b], [0, 30]))
+    assert abs(got - 28000) < 1.0
+
+
+def test_loft_length_mismatch_raises(part):
+    sq = [[-10, -10], [10, -10], [10, 10], [-10, 10]]
+    with pytest.raises(SolidWorksError):
+        part.add_lofted_solid([sq, sq], [0])
+
+
+def test_loft_heights_not_increasing_raises(part):
+    sq = [[-10, -10], [10, -10], [10, 10], [-10, 10]]
+    with pytest.raises(SolidWorksError):
+        part.add_lofted_solid([sq, sq], [0, 0])
+
+
+def test_loft_single_profile_raises(part):
+    sq = [[-10, -10], [10, -10], [10, 10], [-10, 10]]
+    with pytest.raises(SolidWorksError):
+        part.add_lofted_solid([sq], [0])
+
+
 def test_round_flange(part):
     # disc + centre bore + bolt hole + 6x circular pattern = a round flange
     part.add_disc(80, 15)
