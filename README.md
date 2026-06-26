@@ -89,7 +89,8 @@ Desktop / Claude Code) using the venv's Python:
 | `get_status` | Is SolidWorks reachable? revision + active/current part |
 | `new_part` | Create a new empty part (becomes current) |
 | `add_box(width_mm, height_mm, depth_mm, name)` | Sketch rectangle + extrude; returns mass properties |
-| `add_cylinder(diameter_mm, height_mm, name)` | Cylinder by revolving a profile 360° about an axis |
+| `add_cylinder(diameter_mm, height_mm, name)` | Cylinder by revolving a profile 360° about an axis (Y axis) |
+| `add_disc(diameter_mm, thickness_mm, name)` | Disc/puck/flange: circle extruded along +Z (holes/patterns compose) |
 | `add_cone(bottom_diameter_mm, top_diameter_mm, height_mm, name)` | Cone/frustum by revolve (top Ø = 0 → full cone) |
 | `add_extruded_profile(points_mm, depth_mm, name)` | Extrude any closed polygon `[[x,y],…]` (brackets, sections) |
 | `add_hole(diameter_mm, x_mm, y_mm, name)` | Cut a circular through-hole at (x, y) through the depth axis |
@@ -149,10 +150,10 @@ Two non-obvious design decisions, both load-bearing:
   extruded profiles**, **holes**, **polygon pockets/slots** (`cut_profile`),
   **fillets**, **chamfers**, **shells**, **linear + circular patterns** (bolt
   circles); plus **equations**, **materials**, geometry **inspection**, and
-  **save/open** of `.sldprt`, and **holes + pockets on any planar face**
-  (model→sketch transform). Next: sweep/loft, sketch arcs/splines, round-flange
-  bolt circles (circular pattern about non-Z axes). Mirror is shelved — both API
-  routes fail on this build; an AI mirrors by placing features symmetrically.
+  **save/open** of `.sldprt`, **holes + pockets on any planar face**
+  (model→sketch transform), and **round flanges** (disc + bore + bolt circle).
+  Next: sweep/loft, sketch arcs/splines. Mirror is shelved — both API routes fail
+  on this build; an AI mirrors by placing features symmetrically.
 - Selection: plane walk, face-by-normal/direction (`_planar_face_by_normal`,
   `+z`/…), and edge selection by axis **or explicit index** (`_select_edges`).
   `list_faces`/`list_edges` let an agent inspect geometry before selecting;

@@ -160,6 +160,15 @@ Key gotcha: `CreatePoint` needs a `win32com.client.VARIANT(VT_ARRAY|VT_R8, [...]
 the +X (40 mm) and +Y (20 mm) faces; 36 pytest tests green. Unblocks side holes,
 pockets on any face, and bolt circles on cylinder end-faces.
 
+### M4 — disc / round flange 🚧
+`add_disc(diameter, thickness)`: a circle extruded along +Z (axis Z, centred at
+origin). Chosen over reorienting add_cylinder or generalising circular_pattern:
+because the disc's flat faces are +Z/-Z, the existing add_hole (+Z) and
+add_circular_pattern (Z-axis) compose directly. **Round flange** = add_disc +
+centre bore + bolt hole + circular pattern, verified end to end (Ø80x15, Ø20 bore,
+6x Ø10 bolts -> 63617.25 mm³). Also a nice sanity check of the line-edge guard:
+add_fillet(edges="z") on a disc correctly finds 0 straight edges and raises.
+
 ## Key API findings (this build)
 
 These were read from the installed typelib (`scripts/introspect_api.py`), not
