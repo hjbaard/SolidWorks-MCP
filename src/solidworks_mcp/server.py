@@ -69,6 +69,16 @@ async def add_extruded_profile(points_mm: list, depth_mm: float, name: str = "Ex
 
 
 @mcp.tool()
+async def add_disc(diameter_mm: float, thickness_mm: float, name: str = "Disc") -> dict:
+    """Create a disc/puck/flange: a circle extruded along +Z, centred at the origin.
+
+    Flat faces are +Z/-Z, so add_hole and add_circular_pattern compose with it
+    (round-flange bolt circles). Returns mass properties. Use new_part first.
+    """
+    return await _call(_session.add_disc, diameter_mm, thickness_mm, name)
+
+
+@mcp.tool()
 async def add_cylinder(diameter_mm: float, height_mm: float, name: str = "Revolve") -> dict:
     """Create a cylinder by revolving a profile 360° about an axis.
 

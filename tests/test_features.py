@@ -35,6 +35,20 @@ def test_cone_frustum(part):
     assert abs(vol(part.add_cone(20, 10, 20)) - expected) < 0.1
 
 
+def test_disc(part):
+    assert abs(vol(part.add_disc(40, 10)) - math.pi * 20 ** 2 * 10) < 0.1
+
+
+def test_round_flange(part):
+    # disc + centre bore + bolt hole + 6x circular pattern = a round flange
+    part.add_disc(80, 15)
+    part.add_hole(20, 0, 0, name="Bore")
+    part.add_hole(10, 30, 0, name="Bolt")
+    r = part.add_circular_pattern(6, 0, 0)
+    expected = math.pi * 15 * (40 ** 2 - 10 ** 2 - 6 * 5 ** 2)
+    assert abs(vol(r) - expected) < 0.5
+
+
 def test_extruded_profile(part):
     # L-bracket, shoelace area 1800 mm^2
     pts = [[0, 0], [60, 0], [60, 20], [20, 20], [20, 50], [0, 50]]

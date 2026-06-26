@@ -469,6 +469,46 @@ class SolidWorksSession:
             raise SolidWorksError("FeatureExtrusion3 mislukte (None). Is het profiel gesloten en niet zelfsnijdend?")
         return self._finish_feature(extrude, name)
 
+    def add_disc(self, diameter_mm: float, thickness_mm: float, name: str = "Disc") -> dict:
+        """Create a disc / puck / flange: a circle extruded along +Z, centred at origin.
+
+        Unlike add_cylinder (revolve, axis Y), the disc's flat faces are +Z/-Z, so
+        add_hole and add_circular_pattern compose with it directly -- this is how
+        round-flange bolt circles are built. Centred at the origin (x, y in
+        [-r, r]). Returns mass properties (volume = pi * r^2 * thickness).
+        """
+        model = self._require_model()
+        if diameter_mm <= 0 or thickness_mm <= 0:
+            raise SolidWorksError("diameter en thickness moeten > 0 zijn.")
+
+        plane = self._first_ref_plane()
+        if plane is None:
+            raise SolidWorksError("Geen reference plane gevonden in de feature tree.")
+        if not plane.Select2(False, 0):
+            raise SolidWorksError("Kon de reference plane niet selecteren.")
+
+        sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
+        sk.InsertSketch(True)
+        circle = sk.CreateCircleByRadius(0.0, 0.0, 0.0, mm_to_m(diameter_mm / 2.0))
+        model.ClearSelection2(True)
+        sk.InsertSketch(True)
+        if not circle:
+            raise SolidWorksError("Cirkel-sketch mislukte: CreateCircleByRadius gaf niets terug.")
+
+        feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
+        extrude = feat_mgr.FeatureExtrusion3(
+            True, False, False,
+            SW_END_COND_BLIND, 0,
+            mm_to_m(thickness_mm), 0.0,
+            False, False, False, False, 0.0, 0.0,
+            False, False, False, False,
+            True, True, True,
+            SW_START_SKETCH_PLANE, 0.0, False,
+        )
+        if extrude is None:
+            raise SolidWorksError("FeatureExtrusion3 mislukte (None).")
+        return self._finish_feature(extrude, name)
+
     def add_cylinder(self, diameter_mm: float, height_mm: float, name: str = "Revolve") -> dict:
         """Create a cylinder by revolving a rectangular profile 360 deg about an axis.
 
