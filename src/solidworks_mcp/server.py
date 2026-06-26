@@ -113,6 +113,19 @@ async def add_revolved_profile(profile_mm: list, angle_deg: float = 360.0,
 
 
 @mcp.tool()
+async def add_swept_pipe(path_mm: list, diameter_mm: float,
+                         bend_radius_mm: float = 0.0, name: str = "Pipe") -> dict:
+    """Sweep a circular profile (pipe/tube/rod) along a 2D path on the Front plane.
+
+    path_mm = [[x, y], …] in mm is the centreline. Interior corners are rounded
+    with bend_radius_mm (required when the path turns; a 2-point straight path
+    needs none). diameter_mm = outer Ø; the round profile is auto-generated
+    perpendicular to the path. Returns mass properties. Use new_part first.
+    """
+    return await _call(_session.add_swept_pipe, path_mm, diameter_mm, bend_radius_mm, name)
+
+
+@mcp.tool()
 async def add_hole(diameter_mm: float, x_mm: float, y_mm: float, name: str = "Hole") -> dict:
     """Cut a circular through-hole at (x_mm, y_mm), through the part's depth axis.
 

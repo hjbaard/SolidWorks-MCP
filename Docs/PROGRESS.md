@@ -195,6 +195,31 @@ offset from axis, outer10/inner5/h2) = 471.24, frustum = 3665.19, **half** (180�
 cylinder = 3141.59. Unlocks turned shafts, vases, rings/torus cross-sections, and
 partial revolves -- the cone/cylinder are now just special cases.
 
+### M4 — swept pipe (first sweep) 🚧
+`add_swept_pipe(path, diameter, bend_radius)`: sweep a round profile along a 2D
+path on the Front plane -> pipes, tubes, rods, wire, bent frames. The first SWEEP
+feature, via `IFeatureManager.InsertProtrusionSwept4` (dispid 256, 20 args). Key
+unlock: its **CircularProfile + CircularProfileDiameter** options auto-generate the
+round profile perpendicular to the path -- so NO separate profile sketch and no
+perpendicular-profile-plane gymnastics. We only build the path sketch, select it
+(mark 4 = sweep path; mark 1 failed -> None), and sweep. Sharp polyline corners
+can't be swept with a tube, so we **compute the rounded path geometry ourselves**
+(`_round_polyline`, pure/unit-tested): each interior corner becomes a tangent arc
+of bend_radius (setback = R/tan(θ/2), centre on the bisector at R/sin(θ/2), arc
+direction from the turn's cross-product sign), drawn with CreateLine + CreateArc
+(centre form, dispid 31). Verified vs Pappus (volume = π(d/2)²·path_length):
+straight 50mm Ø10 = 3926.99, L-bend (R10) = 4375.29, U-bend (R8) = 7314.63 -- all
+exact. Determinism over the native sketch-fillet API (which needs fiddly per-vertex
+sketch-point selection). Path is planar (2D) for now; a 3D path is the next step.
+
+### Flaky test note (2026-06-26)
+`test_cut_profile_through` failed ONCE in a full 52-test run (got vol 3000 vs 6000)
+but passes in isolation and on re-run -- non-deterministic state bleed under rapid
+new_part/close_part cycling, not a code regression (the new revolve/pipe tests just
+add more create/close cycles, surfacing it). Pre-existing; the `part` fixture
+already closes each doc. Worth hardening the fixture (verify the new doc is active
+after CloseDoc) but kept separate from feature work; no sleep/poll band-aids.
+
 ## Key API findings (this build)
 
 These were read from the installed typelib (`scripts/introspect_api.py`), not

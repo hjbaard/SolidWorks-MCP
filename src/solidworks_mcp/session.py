@@ -399,6 +399,55 @@ class SolidWorksSession:
         return cleaned
 
     @staticmethod
+    def _round_polyline(points_mm, radius_mm) -> list:
+        """Open polyline with filleted interior corners; pure (no COM), unit-testable.
+
+        Returns drawable segments in mm: ("line", (x1,y1), (x2,y2)) or
+        ("arc", (cx,cy), (sx,sy), (ex,ey), direction) where direction is +1 (CCW)
+        or -1 (CW). Each interior corner is replaced by a tangent arc of radius
+        radius_mm. A straight 2-point path needs no radius; a path with corners
+        requires radius_mm > 0. Raises if the radius does not fit a segment.
+        """
+        clean = []
+        for p in points_mm:
+            q = (float(p[0]), float(p[1]))
+            if not clean or abs(q[0] - clean[-1][0]) > 1e-9 or abs(q[1] - clean[-1][1]) > 1e-9:
+                clean.append(q)
+        if len(clean) < 2:
+            raise SolidWorksError(f"pad heeft minstens 2 verschillende punten nodig (kreeg {len(clean)}).")
+        if len(clean) == 2:
+            return [("line", clean[0], clean[1])]
+        if radius_mm <= 0:
+            raise SolidWorksError("bend_radius moet > 0 zijn voor een pad met hoeken.")
+
+        segs = []
+        cur = clean[0]
+        for i in range(1, len(clean) - 1):
+            a, v, b = clean[i - 1], clean[i], clean[i + 1]
+            ax, ay = a[0] - v[0], a[1] - v[1]
+            bx, by = b[0] - v[0], b[1] - v[1]
+            la, lb = math.hypot(ax, ay), math.hypot(bx, by)
+            ax, ay, bx, by = ax / la, ay / la, bx / lb, by / lb
+            theta = math.acos(max(-1.0, min(1.0, ax * bx + ay * by)))
+            if theta < 1e-6 or abs(theta - math.pi) < 1e-6:
+                continue  # collinear: no corner to round
+            setback = radius_mm / math.tan(theta / 2.0)
+            if setback > la - 1e-9 or setback > lb - 1e-9:
+                raise SolidWorksError(f"bend_radius {radius_mm} te groot voor het segment bij punt {i}.")
+            t_in = (v[0] + ax * setback, v[1] + ay * setback)
+            t_out = (v[0] + bx * setback, v[1] + by * setback)
+            bisx, bisy = ax + bx, ay + by
+            lbis = math.hypot(bisx, bisy)
+            dist_c = radius_mm / math.sin(theta / 2.0)
+            c = (v[0] + bisx / lbis * dist_c, v[1] + bisy / lbis * dist_c)
+            cross = (t_in[0] - c[0]) * (t_out[1] - c[1]) - (t_in[1] - c[1]) * (t_out[0] - c[0])
+            segs.append(("line", cur, t_in))
+            segs.append(("arc", c, t_in, t_out, 1 if cross > 0 else -1))
+            cur = t_out
+        segs.append(("line", cur, clean[-1]))
+        return segs
+
+    @staticmethod
     def _draw_polygon_segments(sk, pts_m) -> None:
         """Draw closed-polygon CreateLine segments from 2D points in METRES.
 
@@ -640,6 +689,72 @@ class SolidWorksSession:
         if revolve is None:
             raise SolidWorksError("FeatureRevolve2 mislukte (None). Is het profiel gesloten en geldig?")
         return self._finish_feature(revolve, name)
+
+    def add_swept_pipe(self, path_mm: list, diameter_mm: float,
+                       bend_radius_mm: float = 0.0, name: str = "Pipe") -> dict:
+        """Sweep a circular profile (pipe/tube/rod) along a 2D path on the Front plane.
+
+        path_mm = [[x, y], ...] in mm: the pipe centreline. Interior corners are
+        rounded with bend_radius_mm (required when the path has corners; a 2-point
+        straight path needs none). diameter_mm is the outer diameter; the round
+        profile is generated perpendicular to the path automatically. Returns mass
+        properties (volume = pi*(d/2)^2 * path_length). Use new_part first.
+        """
+        model = self._require_model()
+        if diameter_mm <= 0:
+            raise SolidWorksError(f"diameter moet > 0 zijn (kreeg {diameter_mm}).")
+        segs = self._round_polyline(path_mm, bend_radius_mm)
+
+        sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
+        sk.InsertSketch(True)
+        for s in segs:
+            if s[0] == "line":
+                (x1, y1), (x2, y2) = s[1], s[2]
+                if not sk.CreateLine(mm_to_m(x1), mm_to_m(y1), 0.0, mm_to_m(x2), mm_to_m(y2), 0.0):
+                    sk.InsertSketch(True)
+                    raise SolidWorksError("Kon een padlijn niet maken.")
+            else:
+                _, c, p1, p2, direction = s
+                arc = sk.CreateArc(mm_to_m(c[0]), mm_to_m(c[1]), 0.0,
+                                   mm_to_m(p1[0]), mm_to_m(p1[1]), 0.0,
+                                   mm_to_m(p2[0]), mm_to_m(p2[1]), 0.0, direction)
+                if arc is None:
+                    sk.InsertSketch(True)
+                    raise SolidWorksError("Kon een padboog niet maken.")
+        sk.InsertSketch(True)  # close the path sketch
+
+        path_name = self._last_sketch_name()
+        model.ClearSelection2(True)
+        ext = binding.wrap(model.Extension, self._mod.IModelDocExtension)
+        if not ext.SelectByID2(path_name, "SKETCH", 0.0, 0.0, 0.0, False, 4, None, 0):  # mark 4 = sweep path
+            raise SolidWorksError(f"Kon het pad '{path_name}' niet selecteren.")
+
+        feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
+        pipe = feat_mgr.InsertProtrusionSwept4(
+            False,     # Propagate
+            False,     # Alignment
+            0,         # TwistCtrlOption
+            False,     # KeepTangency
+            False,     # BAdvancedSmoothing
+            0, 0,      # Start/EndMatchingType
+            False,     # IsThinBody
+            0.0, 0.0, 0,  # Thickness1, Thickness2, ThinType
+            0,         # PathAlign
+            True,      # Merge
+            True,      # UseFeatScope
+            True,      # UseAutoSelect
+            0.0,       # TwistAngle
+            True,      # BMergeSmoothFaces
+            True,      # CircularProfile (auto round profile, perpendicular to path)
+            mm_to_m(diameter_mm),  # CircularProfileDiameter
+            0,         # Direction
+        )
+        if pipe is None:
+            raise SolidWorksError(
+                "InsertProtrusionSwept4 mislukte (None). Is het pad geldig "
+                "(geen overlappende bochten, radius past)?"
+            )
+        return self._finish_feature(pipe, name)
 
     def add_hole(self, diameter_mm: float, x_mm: float, y_mm: float,
                  name: str = "Hole") -> dict:
@@ -1008,6 +1123,21 @@ class SolidWorksSession:
         "MirrorSolid", "MirrorPattern", "RefPlane", "RefAxis",
         "ProfileFeature", "OriginProfileFeature",
     }
+
+    def _last_sketch_name(self) -> str:
+        """Name of the most recent sketch (ProfileFeature) -- e.g. a sweep path."""
+        feat = binding.wrap(self._model.FirstFeature(), self._mod.IFeature)
+        name = None
+        while feat is not None:
+            try:
+                if feat.GetTypeName2() == "ProfileFeature":
+                    name = feat.Name
+            except pythoncom.com_error:
+                pass
+            feat = binding.wrap(feat.GetNextFeature(), self._mod.IFeature)
+        if name is None:
+            raise SolidWorksError("Geen sketch (ProfileFeature) gevonden.")
+        return name
 
     def _last_feature_name(self) -> str:
         """Name of the most recent body-modifying feature (the default pattern seed).

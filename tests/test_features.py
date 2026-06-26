@@ -57,6 +57,19 @@ def test_revolve_partial(part):
     assert abs(got - math.pi * 100 * 20 / 2) < 0.1
 
 
+def test_swept_pipe_straight(part):
+    # straight 50 mm path, Ø10 -> cylinder r=5: pi*25*50 (Pappus)
+    got = vol(part.add_swept_pipe([[0, 0], [50, 0]], 10))
+    assert abs(got - math.pi * 25 * 50) < 0.5
+
+
+def test_swept_pipe_L_bend(part):
+    # L path with 10 mm bend: length = 20 + 20 + (pi/2)*10; Ø10 -> pi*25*length
+    length = 20 + 20 + math.pi / 2 * 10
+    got = vol(part.add_swept_pipe([[0, 0], [30, 0], [30, 30]], 10, 10))
+    assert abs(got - math.pi * 25 * length) < 0.5
+
+
 def test_round_flange(part):
     # disc + centre bore + bolt hole + 6x circular pattern = a round flange
     part.add_disc(80, 15)

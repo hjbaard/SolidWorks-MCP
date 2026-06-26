@@ -4,6 +4,8 @@ These cover the fiddly logic added during the toolset build (selector parsing,
 direction parsing, axis classification, polygon cleaning) without SolidWorks.
 """
 
+import math
+
 import pytest
 
 from solidworks_mcp.errors import SolidWorksError
@@ -66,3 +68,38 @@ def test_clean_polygon_too_few_distinct():
         SolidWorksSession._clean_polygon([[0, 0], [40, 0]])
     with pytest.raises(SolidWorksError):
         SolidWorksSession._clean_polygon([[0, 0], [0, 0], [0, 0]])
+
+
+def test_round_polyline_straight_is_single_line():
+    segs = SolidWorksSession._round_polyline([[0, 0], [50, 0]], 0)
+    assert segs == [("line", (0.0, 0.0), (50.0, 0.0))]
+
+
+def test_round_polyline_corner_needs_radius():
+    with pytest.raises(SolidWorksError):
+        SolidWorksSession._round_polyline([[0, 0], [30, 0], [30, 30]], 0)
+
+
+def test_round_polyline_radius_too_large():
+    with pytest.raises(SolidWorksError):
+        SolidWorksSession._round_polyline([[0, 0], [10, 0], [10, 10]], 50)
+
+
+def _close(a, b):
+    return all(abs(x - y) < 1e-9 for x, y in zip(a, b))
+
+
+def test_round_polyline_L_bend_geometry():
+    # 90-degree corner at (30,0): tangent points at (20,0) and (30,10), arc centre (20,10)
+    segs = SolidWorksSession._round_polyline([[0, 0], [30, 0], [30, 30]], 10)
+    assert segs[0][0] == "line" and _close(segs[0][1], (0, 0)) and _close(segs[0][2], (20, 0))
+    kind, c, p1, p2, direction = segs[1]
+    assert kind == "arc" and direction == 1
+    assert _close(c, (20, 10)) and _close(p1, (20, 0)) and _close(p2, (30, 10))
+    assert segs[2][0] == "line" and _close(segs[2][1], (30, 10)) and _close(segs[2][2], (30, 30))
+
+
+def test_round_polyline_collinear_points_no_arc():
+    # a straight run expressed as 3 collinear points -> no fillet, just lines
+    segs = SolidWorksSession._round_polyline([[0, 0], [25, 0], [50, 0]], 10)
+    assert all(s[0] == "line" for s in segs)
