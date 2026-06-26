@@ -7,6 +7,9 @@ swDefaultTemplatePart == 8 on this build (not 9, as often stated online): always
 trust the installed library over web docs.
 """
 
+# swDocumentTypes_e (for OpenDoc6)
+SW_DOC_PART = 1
+
 # swEndConditions_e
 SW_END_COND_BLIND = 0
 SW_END_COND_THROUGH_ALL = 1

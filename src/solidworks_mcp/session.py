@@ -18,6 +18,7 @@ from .constants import (
     EXPORT_FORMATS,
     SW_BODY_SOLID,
     SW_CHAMFER_ANGLE_DISTANCE,
+    SW_DOC_PART,
     SW_END_COND_BLIND,
     SW_END_COND_THROUGH_ALL,
     SW_FILLET_OPT_UNIFORM_RADIUS,
@@ -115,6 +116,32 @@ class SolidWorksSession:
         self._sw.CloseDoc(title)
         self._model = None
         return {"ok": True, "closed": title}
+
+    def save_part(self, path: str) -> dict:
+        """Save the current part to a native .sldprt file (silent)."""
+        model = self._require_model()
+        abs_path = os.path.abspath(path)
+        if not abs_path.lower().endswith(".sldprt"):
+            abs_path += ".sldprt"
+        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+        result = model.SaveAs3(abs_path, SW_SAVE_AS_CURRENT_VERSION, SW_SAVE_AS_OPTIONS_SILENT)
+        if not os.path.isfile(abs_path):
+            raise SolidWorksError(f"Opslaan mislukt: bestand niet aangemaakt ({abs_path}); SaveAs3 gaf {result}.")
+        return {"ok": True, "path": abs_path, "bytes": os.path.getsize(abs_path)}
+
+    def open_part(self, path: str) -> dict:
+        """Open an existing .sldprt; it becomes the current part."""
+        sw = self._ensure()
+        abs_path = os.path.abspath(path)
+        if not os.path.isfile(abs_path):
+            raise SolidWorksError(f"Bestand niet gevonden: {abs_path}")
+        result = sw.OpenDoc6(abs_path, SW_DOC_PART, 0, "", 0, 0)
+        doc = result[0] if isinstance(result, tuple) else result
+        model = binding.wrap(doc, self._mod.IModelDoc2)
+        if model is None:
+            raise SolidWorksError(f"Kon het part niet openen: {abs_path}")
+        self._model = model
+        return {"ok": True, "title": model.GetTitle(), "path": abs_path}
 
     # --- geometry -------------------------------------------------------------
 

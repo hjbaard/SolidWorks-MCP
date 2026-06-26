@@ -242,6 +242,18 @@ async def close_part(save: bool = False) -> dict:
     return await _call(_session.close_part, save)
 
 
+@mcp.tool()
+async def save_part(path: str) -> dict:
+    """Save the current part to a native .sldprt file (so it can be reopened/edited)."""
+    return await _call(_session.save_part, path)
+
+
+@mcp.tool()
+async def open_part(path: str) -> dict:
+    """Open an existing .sldprt file; it becomes the current part."""
+    return await _call(_session.open_part, path)
+
+
 def main() -> None:
     """Entry point: run the MCP server over stdio."""
     try:
