@@ -138,6 +138,21 @@ async def add_swept_pipe(path_mm: list, diameter_mm: float,
 
 
 @mcp.tool()
+async def add_swept_profile(profile_mm: list, path_mm: list,
+                            bend_radius_mm: float = 0.0, name: str = "Sweep") -> dict:
+    """Sweep an arbitrary closed PROFILE (cross-section) along a 2D PATH.
+
+    profile_mm = [[u,v],…] in mm: the closed cross-section on the Right plane (u →
+    world +Y, v → world +Z), centred near the origin. path_mm = [[x,y],…] in mm on
+    the Front plane — MUST start at the origin heading +X (the profile is
+    perpendicular to the path there). Path corners are rounded with bend_radius_mm.
+    Volume = profile_area · path_length. For non-round extrusions along a path
+    (rails, gaskets, trim, channels). Returns mass properties. Use new_part first.
+    """
+    return await _call(_session.add_swept_profile, profile_mm, path_mm, bend_radius_mm, name)
+
+
+@mcp.tool()
 async def add_lofted_solid(profiles_mm: list, heights_mm: list, name: str = "Loft") -> dict:
     """Loft (blend) 2+ closed polygon profiles on parallel planes stacked along +Z.
 

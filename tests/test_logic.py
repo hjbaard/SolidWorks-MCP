@@ -167,3 +167,23 @@ def test_round_polyline_foldback_raises():
     # path doubling back over itself (180-deg fold) must fail fast, not be flattened
     with pytest.raises(SolidWorksError):
         SolidWorksSession._round_polyline([[0, 0], [50, 0], [10, 0]], 5)
+
+
+def test_path_starts_along_x_ok():
+    # origin + first segment heading +X -> no raise (collinear extra point allowed)
+    SolidWorksSession._require_path_starts_along_x([[0, 0], [40, 0], [40, 30]])
+
+
+def test_path_starts_along_x_not_origin_raises():
+    with pytest.raises(SolidWorksError):
+        SolidWorksSession._require_path_starts_along_x([[5, 0], [40, 0]])
+
+
+def test_path_starts_along_x_wrong_direction_raises():
+    with pytest.raises(SolidWorksError):
+        SolidWorksSession._require_path_starts_along_x([[0, 0], [0, 40]])  # heads +Y
+
+
+def test_path_starts_along_x_too_few_points_raises():
+    with pytest.raises(SolidWorksError):
+        SolidWorksSession._require_path_starts_along_x([[0, 0]])

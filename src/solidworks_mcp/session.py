@@ -768,23 +768,15 @@ class SolidWorksSession:
             raise SolidWorksError("FeatureRevolve2 mislukte (None). Is het profiel gesloten en geldig?")
         return self._finish_feature(revolve, name)
 
-    def add_swept_pipe(self, path_mm: list, diameter_mm: float,
-                       bend_radius_mm: float = 0.0, name: str = "Pipe") -> dict:
-        """Sweep a circular profile (pipe/tube/rod) along a 2D path on the Front plane.
+    def _draw_path_on_front(self, model, path_mm, bend_radius_mm) -> str:
+        """Draw a rounded polyline path on the Front plane; return the new sketch name.
 
-        path_mm = [[x, y], ...] in mm: the pipe centreline. Interior corners are
-        rounded with bend_radius_mm (required when the path has corners; a 2-point
-        straight path needs none). diameter_mm is the outer diameter; the round
-        profile is generated perpendicular to the path automatically. Returns mass
-        properties (volume = pi*(d/2)^2 * path_length). Use new_part first.
+        Shared by the sweep builders. Pins the sketch to the Front plane (every
+        builder selects its plane explicitly), rounds interior corners with
+        bend_radius_mm (see _round_polyline), and identifies the just-drawn sketch
+        via a ProfileFeature before/after diff.
         """
-        model = self._require_model()
-        if diameter_mm <= 0:
-            raise SolidWorksError(f"diameter moet > 0 zijn (kreeg {diameter_mm}).")
         segs = self._round_polyline(path_mm, bend_radius_mm)
-
-        # Pin the path sketch to the Front plane regardless of prior selection
-        # state (every other builder selects its plane explicitly before sketching).
         plane = self._first_ref_plane()
         if plane is None:
             raise SolidWorksError("Geen reference plane gevonden in de feature tree.")
@@ -798,15 +790,12 @@ class SolidWorksSession:
             if s[0] == "line":
                 (x1, y1), (x2, y2) = s[1], s[2]
                 if not sk.CreateLine(mm_to_m(x1), mm_to_m(y1), 0.0, mm_to_m(x2), mm_to_m(y2), 0.0):
-                    sk.InsertSketch(True)
                     raise SolidWorksError("Kon een padlijn niet maken.")
             else:
                 _, c, p1, p2, direction = s
-                arc = sk.CreateArc(mm_to_m(c[0]), mm_to_m(c[1]), 0.0,
-                                   mm_to_m(p1[0]), mm_to_m(p1[1]), 0.0,
-                                   mm_to_m(p2[0]), mm_to_m(p2[1]), 0.0, direction)
-                if arc is None:
-                    sk.InsertSketch(True)
+                if sk.CreateArc(mm_to_m(c[0]), mm_to_m(c[1]), 0.0,
+                                mm_to_m(p1[0]), mm_to_m(p1[1]), 0.0,
+                                mm_to_m(p2[0]), mm_to_m(p2[1]), 0.0, direction) is None:
                     raise SolidWorksError("Kon een padboog niet maken.")
         sk.InsertSketch(True)  # close the path sketch
 
@@ -815,7 +804,23 @@ class SolidWorksSession:
             raise SolidWorksError(
                 f"Kon het zojuist getekende pad niet identificeren (verwachtte 1 nieuwe sketch, vond {len(new_names)})."
             )
-        path_name = new_names.pop()
+        return new_names.pop()
+
+    def add_swept_pipe(self, path_mm: list, diameter_mm: float,
+                       bend_radius_mm: float = 0.0, name: str = "Pipe") -> dict:
+        """Sweep a circular profile (pipe/tube/rod) along a 2D path on the Front plane.
+
+        path_mm = [[x, y], ...] in mm: the pipe centreline. Interior corners are
+        rounded with bend_radius_mm (required when the path has corners; a 2-point
+        straight path needs none). diameter_mm is the outer diameter; the round
+        profile is generated perpendicular to the path automatically. Returns mass
+        properties (volume = pi*(d/2)^2 * path_length). Use new_part first.
+        """
+        model = self._require_model()
+        if diameter_mm <= 0:
+            raise SolidWorksError(f"diameter moet > 0 zijn (kreeg {diameter_mm}).")
+
+        path_name = self._draw_path_on_front(model, path_mm, bend_radius_mm)
         model.ClearSelection2(True)
         ext = binding.wrap(model.Extension, self._mod.IModelDocExtension)
         if not ext.SelectByID2(path_name, "SKETCH", 0.0, 0.0, 0.0, False, 4, None, 0):  # mark 4 = sweep path
@@ -847,6 +852,98 @@ class SolidWorksSession:
                 "(geen overlappende bochten, radius past)?"
             )
         return self._finish_feature(pipe, name)
+
+    @staticmethod
+    def _require_path_starts_along_x(path_mm) -> None:
+        """Fail-fast: a swept-profile path must start at the origin heading +X.
+
+        The cross-section sits on the Right plane (normal +X), so the path's start
+        tangent must be +X for the profile to be perpendicular to it. Pure helper.
+        """
+        raw = [(float(x), float(y)) for x, y in path_mm]
+        if len(raw) < 2:
+            raise SolidWorksError("path heeft minstens 2 punten nodig.")
+        p0 = raw[0]
+        p1 = next((p for p in raw[1:] if abs(p[0] - p0[0]) > 1e-9 or abs(p[1] - p0[1]) > 1e-9), None)
+        if p1 is None:
+            raise SolidWorksError("path heeft minstens 2 verschillende punten nodig.")
+        if math.hypot(p0[0], p0[1]) > 1e-6:
+            raise SolidWorksError("path moet bij de oorsprong (0,0) beginnen.")
+        dx, dy = p1[0] - p0[0], p1[1] - p0[1]
+        if dx / math.hypot(dx, dy) < 1.0 - 1e-6:  # start tangent not +X
+            raise SolidWorksError("path moet bij de start langs +X lopen (eerste segment richting +X).")
+
+    def add_swept_profile(self, profile_mm: list, path_mm: list,
+                          bend_radius_mm: float = 0.0, name: str = "Sweep") -> dict:
+        """Sweep an arbitrary closed PROFILE (cross-section) along a 2D PATH.
+
+        profile_mm = [[u, v], ...] in mm: the closed cross-section, drawn on the
+        Right plane (u along world +Y, v along world +Z), centred near the origin.
+        path_mm = [[x, y], ...] in mm on the Front plane; it MUST start at the
+        origin heading +X (so the profile is perpendicular to the path there).
+        Interior path corners are rounded with bend_radius_mm. Volume =
+        profile_area * path_length (Pappus). For non-round extrusions along a path
+        (rails, gaskets, trim, channels). Returns mass properties. Use new_part first.
+        """
+        model = self._require_model()
+        prof = self._clean_polygon(profile_mm)  # >= 3 distinct points
+        self._require_path_starts_along_x(path_mm)
+
+        planes = self._ref_planes()
+        if len(planes) < 3:
+            raise SolidWorksError("Geen Right-vlak gevonden (verwacht Front/Top/Right).")
+        right = planes[2]  # tree order: Front, Top, Right
+
+        # profile (cross-section) on the Right plane, perpendicular to the +X start
+        if not right.Select2(False, 0):
+            raise SolidWorksError("Kon het Right-vlak niet selecteren.")
+        before = self._profile_feature_names()
+        sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
+        sk.InsertSketch(True)
+        self._draw_polygon_segments(sk, [(mm_to_m(u), mm_to_m(v)) for u, v in prof])
+        model.ClearSelection2(True)
+        sk.InsertSketch(True)
+        profile_names = self._profile_feature_names() - before
+        if len(profile_names) != 1:
+            raise SolidWorksError("Kon het profiel niet identificeren na het tekenen.")
+        profile_name = profile_names.pop()
+
+        # path on the Front plane (reuses the rounded-polyline path builder)
+        path_name = self._draw_path_on_front(model, path_mm, bend_radius_mm)
+
+        model.ClearSelection2(True)
+        ext = binding.wrap(model.Extension, self._mod.IModelDocExtension)
+        if not ext.SelectByID2(profile_name, "SKETCH", 0.0, 0.0, 0.0, False, 1, None, 0):  # mark 1 = profile
+            raise SolidWorksError(f"Kon het profiel '{profile_name}' niet selecteren.")
+        if not ext.SelectByID2(path_name, "SKETCH", 0.0, 0.0, 0.0, True, 4, None, 0):  # mark 4 = path
+            raise SolidWorksError(f"Kon het pad '{path_name}' niet selecteren.")
+
+        feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
+        sweep = feat_mgr.InsertProtrusionSwept4(
+            False,     # Propagate
+            False,     # Alignment
+            0,         # TwistCtrlOption
+            False,     # KeepTangency
+            False,     # BAdvancedSmoothing
+            0, 0,      # Start/EndMatchingType
+            False,     # IsThinBody
+            0.0, 0.0, 0,  # Thickness1, Thickness2, ThinType
+            0,         # PathAlign
+            True,      # Merge
+            True,      # UseFeatScope
+            True,      # UseAutoSelect
+            0.0,       # TwistAngle
+            True,      # BMergeSmoothFaces
+            False,     # CircularProfile (use the selected profile sketch)
+            0.0,       # CircularProfileDiameter
+            0,         # Direction
+        )
+        if sweep is None:
+            raise SolidWorksError(
+                "InsertProtrusionSwept4 mislukte (None). Ligt het profiel op het Right-vlak "
+                "en start het pad bij de oorsprong langs +X?"
+            )
+        return self._finish_feature(sweep, name)
 
     def add_lofted_solid(self, profiles_mm: list, heights_mm: list, name: str = "Loft") -> dict:
         """Loft (blend) 2+ closed polygon profiles on parallel planes stacked along +Z.
@@ -1377,16 +1474,21 @@ class SolidWorksSession:
                 pass
         return names
 
-    def _last_ref_plane(self):
-        """The most recently created reference plane (e.g. a fresh loft offset plane)."""
-        found = None
+    def _ref_planes(self) -> list:
+        """All reference planes in tree order (fresh part: [Front, Top, Right, ...])."""
+        planes = []
         for feat in self._iter_features():
             try:
                 if feat.GetTypeName2() == "RefPlane":
-                    found = feat
+                    planes.append(feat)
             except pythoncom.com_error:
                 pass
-        return found
+        return planes
+
+    def _last_ref_plane(self):
+        """The most recently created reference plane (e.g. a fresh loft offset plane)."""
+        planes = self._ref_planes()
+        return planes[-1] if planes else None
 
     def _last_feature_name(self) -> str:
         """Name of the most recent body-modifying feature (the default pattern seed).

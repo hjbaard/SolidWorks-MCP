@@ -96,6 +96,7 @@ Desktop / Claude Code) using the venv's Python:
 | `add_cone(bottom_diameter_mm, top_diameter_mm, height_mm, name)` | Cone/frustum by revolve (top Ø = 0 → full cone) |
 | `add_revolved_profile(profile_mm, angle_deg, name)` | Revolve any closed `(radius, height)` profile about the axis (shafts, vases, rings) |
 | `add_swept_pipe(path_mm, diameter_mm, bend_radius_mm, name)` | Sweep a round profile along a 2D path with rounded bends (pipes, tubes, rods) |
+| `add_swept_profile(profile_mm, path_mm, bend_radius_mm, name)` | Sweep any closed cross-section along a 2D path (rails, gaskets, trim, channels) |
 | `add_lofted_solid(profiles_mm, heights_mm, name)` | Loft/blend 2+ polygon profiles on stacked parallel planes (transitions, adapters) |
 | `add_extruded_profile(points_mm, depth_mm, name)` | Extrude any closed polygon `[[x,y],…]` (brackets, sections) |
 | `add_extruded_spline(points_mm, depth_mm, name)` | Extrude a smooth closed spline through points (free-form/organic outlines) |
@@ -164,9 +165,10 @@ Two non-obvious design decisions, both load-bearing:
   **general revolves** (`add_revolved_profile`: any `(r,z)` profile → shafts,
   vases, rings), **swept pipes/tubes** (`add_swept_pipe`: a round profile along
   a rounded 2D path), and **lofts** (`add_lofted_solid`: blend stacked polygon
-  profiles → transitions/adapters), and **free-form extrusions**
-  (`add_extruded_spline`: a smooth closed spline → organic/aesthetic outlines).
-  Next: non-circular sweep profiles. Mirror is shelved — both routes fail
+  profiles → transitions/adapters), **free-form extrusions**
+  (`add_extruded_spline`: a smooth closed spline → organic/aesthetic outlines), and
+  **non-circular sweeps** (`add_swept_profile`: any cross-section along a path →
+  rails, gaskets, trim). Mirror is shelved — both routes fail
   on this build; an AI mirrors by placing features symmetrically.
 - Selection: plane walk, face-by-normal/direction (`_planar_face_by_normal`,
   `+z`/…), and edge selection by axis **or explicit index** (`_select_edges`).

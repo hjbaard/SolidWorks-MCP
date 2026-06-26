@@ -30,6 +30,21 @@ get_status → new_part → add_box → measure → set_dimension → measure �
 bounding_box → export STEP (15.8 KB, valid AP203) + STL → screenshot (valid
 isometric render) → close_part. All checks pass.
 
+### M4 — non-circular sweep 🚧
+`add_swept_profile(profile, path)`: sweep an arbitrary closed cross-section along a
+2D path (rails, gaskets, trim, channels). The hard part the CircularProfile trick
+avoided -- a profile plane PERPENDICULAR to the path -- is solved with standard
+planes: the profile is drawn on the **Right plane** (3rd RefPlane, normal +X) and
+the path on the Front plane MUST start at the origin heading +X, so the path's start
+tangent equals the Right-plane normal. Marks (cracked empirically): profile = mark 1,
+path = mark 4; InsertProtrusionSwept4 with CircularProfile=False. Verified vs Pappus
+(volume = profile_area * path_length): rect 20x10 straight 40 = 8000 (a box, exact);
+rect 20x10 along an L (R10) = 200 * 55.708 = 11141.59 (exact). Factored
+`_draw_path_on_front` (shared with add_swept_pipe) and `_ref_planes`; the +X-start
+rule is a pure, unit-tested guard (`_require_path_starts_along_x`). Limitation: the
+path must start along +X (a future version could build a perpendicular plane for an
+arbitrary start tangent). Works on this build -- not a mirror-style dead-end.
+
 ### M4 — free-form spline extrusion 🚧
 `add_extruded_spline(points, depth)`: a smooth CLOSED spline through the given points
 (organic/aesthetic outlines -- cams, rounded shapes), extruded like

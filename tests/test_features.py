@@ -113,6 +113,21 @@ def test_swept_pipe_zero_diameter_raises(part):
         part.add_swept_pipe([[0, 0], [50, 0]], 0)
 
 
+def test_swept_profile_straight_box(part):
+    # rect 20x10 swept straight 40 along +X -> box (profile+path mechanism)
+    rect = [[-10, -5], [10, -5], [10, 5], [-10, 5]]
+    got = vol(part.add_swept_profile(rect, [[0, 0], [40, 0]]))
+    assert abs(got - 20 * 10 * 40) < 0.5
+
+
+def test_swept_profile_L_bend(part):
+    # rect 20x10 (area 200) along an L path (R10) -> Pappus: area * path_length
+    rect = [[-10, -5], [10, -5], [10, 5], [-10, 5]]
+    length = 20 + 20 + math.pi / 2 * 10
+    got = vol(part.add_swept_profile(rect, [[0, 0], [30, 0], [30, 30]], 10))
+    assert abs(got - 200 * length) < 0.5
+
+
 def test_loft_two_squares(part):
     # ruled loft between square side 40 @ z=0 and side 20 @ z=30 -> prismatoid
     # V = h/6 * (a^2 + (a+b)^2 + b^2) = 30/6 * (1600 + 3600 + 400) = 28000
