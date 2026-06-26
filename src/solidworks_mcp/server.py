@@ -123,6 +123,18 @@ async def add_linear_pattern(count: int, spacing_mm: float, direction: str = "+x
 
 
 @mcp.tool()
+async def add_circular_pattern(count: int, center_x_mm: float, center_y_mm: float,
+                               feature_name: str | None = None) -> dict:
+    """Repeat a feature `count` times evenly around 360° about an axis.
+
+    The axis is the cylindrical face nearest (center_x_mm, center_y_mm) — e.g. a
+    centre hole drilled there. feature_name defaults to the last feature. Bolt
+    circle: drill a centre hole + one bolt hole, then pattern the bolt hole.
+    """
+    return await _call(_session.add_circular_pattern, count, center_x_mm, center_y_mm, feature_name)
+
+
+@mcp.tool()
 async def add_shell(thickness_mm: float, open_face: str = "+z") -> dict:
     """Hollow the current part to a wall of thickness_mm, opening one face.
 

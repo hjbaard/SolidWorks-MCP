@@ -649,6 +649,68 @@ class SolidWorksSession:
         return self._finish_feature(pattern, "LinearPattern", instances=count,
                                     seed=seed, direction=direction)
 
+    def _cylindrical_face_near(self, body, cx_mm, cy_mm):
+        """The non-planar face whose bbox centre (x,y) is nearest (cx,cy); raw dispatch."""
+        faces = body.GetFaces()
+        if not faces:
+            return None
+        if not isinstance(faces, (list, tuple)):
+            faces = [faces]
+        best, best_d = None, None
+        for face_dispatch in faces:
+            face = binding.wrap(face_dispatch, self._mod.IFace2)
+            surface = binding.wrap(face.GetSurface(), self._mod.ISurface)
+            if surface is not None and surface.IsPlane():
+                continue
+            box = face.GetBox()
+            if not box or len(box) < 6:
+                continue
+            ccx = m_to_mm((box[0] + box[3]) / 2)
+            ccy = m_to_mm((box[1] + box[4]) / 2)
+            d = (ccx - cx_mm) ** 2 + (ccy - cy_mm) ** 2
+            if best_d is None or d < best_d:
+                best_d, best = d, face_dispatch
+        return best
+
+    def add_circular_pattern(self, count: int, center_x_mm: float, center_y_mm: float,
+                             feature_name: str | None = None) -> dict:
+        """Repeat a feature `count` times evenly around 360 deg about an axis.
+
+        The axis is the cylindrical face nearest (center_x_mm, center_y_mm) -- e.g.
+        a centre hole drilled there. feature_name defaults to the last feature.
+        A bolt circle: drill a centre hole + one bolt hole, then pattern the bolt
+        hole. Selection marks: axis face = 1, seed feature = 4; the per-instance
+        angle is 360/count degrees.
+        """
+        model = self._require_model()
+        if count < 2:
+            raise SolidWorksError(f"count moet >= 2 zijn (kreeg {count}).")
+
+        body = self._solid_body()
+        face = self._cylindrical_face_near(body, center_x_mm, center_y_mm)
+        if face is None:
+            raise SolidWorksError(
+                f"Geen cilindrisch vlak bij ({center_x_mm}, {center_y_mm}) gevonden voor de as. "
+                "Boor daar eerst een centraal gat."
+            )
+        seed = feature_name or self._last_feature_name()
+        selmgr = binding.wrap(model.SelectionManager, self._mod.ISelectionMgr)
+        model.ClearSelection2(True)
+        select_data = binding.wrap(selmgr.CreateSelectData(), self._mod.ISelectData)
+        select_data.Mark = 1
+        if not binding.wrap(face, self._mod.IEntity).Select4(True, select_data):
+            raise SolidWorksError("Kon het as-vlak niet selecteren.")
+        ext = binding.wrap(model.Extension, self._mod.IModelDocExtension)
+        if not ext.SelectByID2(seed, "BODYFEATURE", 0.0, 0.0, 0.0, True, 4, None, 0):
+            raise SolidWorksError(f"Kon de seed-feature '{seed}' niet selecteren.")
+
+        feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
+        pattern = feat_mgr.FeatureCircularPattern(count, deg_to_rad(360.0) / count, False, "")
+        if pattern is None:
+            raise SolidWorksError("FeatureCircularPattern mislukte (None).")
+        return self._finish_feature(pattern, "CircularPattern", instances=count,
+                                    seed=seed, center_mm=[center_x_mm, center_y_mm])
+
     # --- parametric edit ------------------------------------------------------
 
     def set_dimension(self, dimension_name: str, value_mm: float) -> dict:
