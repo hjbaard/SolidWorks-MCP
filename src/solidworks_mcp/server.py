@@ -175,6 +175,16 @@ async def set_dimension(dimension_name: str, value_mm: float) -> dict:
 
 
 @mcp.tool()
+async def set_material(name: str, database: str = "") -> dict:
+    """Assign a material by name (e.g. "6061 Alloy", "AISI 1020", "ABS").
+
+    Makes mass and density reflect a real material instead of the 1000 kg/m³
+    default. Returns mass properties including density.
+    """
+    return await _call(_session.set_material, name, database)
+
+
+@mcp.tool()
 async def set_equation(equation: str) -> dict:
     """Add a global equation linking dimensions, then rebuild and remeasure.
 

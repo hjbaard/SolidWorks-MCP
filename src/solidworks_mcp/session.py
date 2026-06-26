@@ -890,6 +890,25 @@ class SolidWorksSession:
             "mass_properties": self.get_mass_properties()["mass_properties"],
         }
 
+    def set_material(self, name: str, database: str = "") -> dict:
+        """Assign a material by name so mass/density reflect a real material.
+
+        name: a material in the SolidWorks database, e.g. '6061 Alloy',
+        'AISI 1020', 'ABS', 'Plain Carbon Steel'. database: path to a .sldmat, or
+        '' for the default databases. Returns mass properties (with density).
+        """
+        model = self._require_model()
+        part = binding.wrap(model, self._mod.IPartDoc)
+        part.SetMaterialPropertyName2("", database, name)
+        model.ForceRebuild3(False)
+        props = self.get_mass_properties()["mass_properties"]
+        if abs(props["density_kg_m3"] - 1000.0) < 0.01:
+            raise SolidWorksError(
+                f"Materiaal '{name}' lijkt niet toegepast (dichtheid nog 1000 kg/m^3). "
+                "Controleer de exacte naam, bv. '6061 Alloy', 'AISI 1020', 'ABS'."
+            )
+        return {"ok": True, "material": name, "mass_properties": props}
+
     def rebuild(self, top_only: bool = False) -> dict:
         model = self._require_model()
         rebuilt_ok = bool(model.ForceRebuild3(top_only))
@@ -914,6 +933,7 @@ class SolidWorksSession:
         props = {
             "volume_mm3": mp.Volume * 1e9,
             "mass_kg": mp.Mass,
+            "density_kg_m3": mp.Density,
             "surface_area_mm2": mp.SurfaceArea * 1e6,
             "center_of_mass_mm": [round(m_to_mm(c), 6) for c in com],
         }
