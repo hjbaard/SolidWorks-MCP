@@ -58,6 +58,17 @@ async def add_box(width_mm: float, height_mm: float, depth_mm: float,
 
 
 @mcp.tool()
+async def add_extruded_profile(points_mm: list, depth_mm: float, name: str = "Extrude") -> dict:
+    """Extrude a closed polygon into a solid: points_mm = [[x,y], ...] in mm.
+
+    The polygon (first-plane coordinates, same as add_box) is auto-closed and
+    extruded by depth_mm. Unlocks arbitrary prismatic shapes (brackets, profiles,
+    polygons). Returns mass properties (volume = polygon area * depth).
+    """
+    return await _call(_session.add_extruded_profile, points_mm, depth_mm, name)
+
+
+@mcp.tool()
 async def add_cylinder(diameter_mm: float, height_mm: float, name: str = "Revolve") -> dict:
     """Create a cylinder by revolving a profile 360° about an axis.
 

@@ -333,6 +333,52 @@ class SolidWorksSession:
         result["depth_dimension"] = f"D1@{result['feature']}"
         return result
 
+    def add_extruded_profile(self, points_mm: list, depth_mm: float,
+                             name: str = "Extrude") -> dict:
+        """Extrude a closed polygon profile into a solid on the first plane.
+
+        points_mm is a list of [x, y] vertices (mm) in the first-plane coordinate
+        system (same as add_box); the polygon is auto-closed and extruded by
+        depth_mm along the plane normal. Unlocks arbitrary prismatic shapes
+        (L-brackets, T-sections, polygons, ...). Returns mass properties
+        (volume = polygon area * depth).
+        """
+        model = self._require_model()
+        if not points_mm or len(points_mm) < 3:
+            raise SolidWorksError("Een profiel heeft minstens 3 punten nodig.")
+        if depth_mm <= 0:
+            raise SolidWorksError(f"depth moet > 0 zijn (kreeg {depth_mm}).")
+
+        plane = self._first_ref_plane()
+        if plane is None:
+            raise SolidWorksError("Geen reference plane gevonden in de feature tree.")
+        if not plane.Select2(False, 0):
+            raise SolidWorksError("Kon de reference plane niet selecteren.")
+
+        sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
+        sk.InsertSketch(True)
+        count = len(points_mm)
+        for i in range(count):
+            x1, y1 = points_mm[i]
+            x2, y2 = points_mm[(i + 1) % count]  # last segment closes the loop
+            sk.CreateLine(mm_to_m(x1), mm_to_m(y1), 0.0, mm_to_m(x2), mm_to_m(y2), 0.0)
+        model.ClearSelection2(True)
+        sk.InsertSketch(True)  # close the sketch
+
+        feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
+        extrude = feat_mgr.FeatureExtrusion3(
+            True, False, False,
+            SW_END_COND_BLIND, 0,
+            mm_to_m(depth_mm), 0.0,
+            False, False, False, False, 0.0, 0.0,
+            False, False, False, False,
+            True, True, True,
+            SW_START_SKETCH_PLANE, 0.0, False,
+        )
+        if extrude is None:
+            raise SolidWorksError("FeatureExtrusion3 mislukte (None). Is het profiel gesloten en niet zelfsnijdend?")
+        return self._finish_feature(extrude, name)
+
     def add_cylinder(self, diameter_mm: float, height_mm: float, name: str = "Revolve") -> dict:
         """Create a cylinder by revolving a rectangular profile 360 deg about an axis.
 
