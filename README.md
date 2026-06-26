@@ -18,7 +18,7 @@ Proven end-to-end against **SOLIDWORKS 2026 (3DEXPERIENCE R2026x)**:
 | M1 | new part → sketch rectangle → extrude → mass properties (volume matches hand calc) | ✅ |
 | M2 | change a named dimension → rebuild → volume changes predictably | ✅ |
 | M3 | full agent loop via the MCP server: build → measure → correct → export STEP/STL + screenshot | ✅ |
-| M4 | revolve, shell, hole, fillet/chamfer, linear + circular pattern, geometry inspection | 🚧 ongoing |
+| M4 | revolve, profiles, holes/pockets, fillet/chamfer, shell, patterns, equations, materials, save/open | 🚧 ongoing |
 
 See [Docs/PROGRESS.md](Docs/PROGRESS.md) for the detailed log and roadmap.
 
@@ -79,7 +79,9 @@ Desktop / Claude Code) using the venv's Python:
 | `add_box(width_mm, height_mm, depth_mm, name)` | Sketch rectangle + extrude; returns mass properties |
 | `add_cylinder(diameter_mm, height_mm, name)` | Cylinder by revolving a profile 360° about an axis |
 | `add_cone(bottom_diameter_mm, top_diameter_mm, height_mm, name)` | Cone/frustum by revolve (top Ø = 0 → full cone) |
+| `add_extruded_profile(points_mm, depth_mm, name)` | Extrude any closed polygon `[[x,y],…]` (brackets, sections) |
 | `add_hole(diameter_mm, x_mm, y_mm, name)` | Cut a circular through-hole at (x, y) through the depth axis |
+| `cut_profile(points_mm, depth_mm, name)` | Cut a polygon pocket/slot from the +Z face (blind or through) |
 | `add_fillet(radius_mm, edges, name)` | Round edges (`edges`: `all`, axis `x`/`y`/`z`, or indices `"2,5"`) |
 | `add_chamfer(distance_mm, edges, name)` | Chamfer edges at 45° (`edges`: `all`, axis, or indices) |
 | `add_shell(thickness_mm, open_face)` | Hollow to a wall thickness; open a face (`+z`/…) or `none` |
@@ -87,12 +89,14 @@ Desktop / Claude Code) using the venv's Python:
 | `add_circular_pattern(count, center_x_mm, center_y_mm, feature_name)` | Repeat a feature N times around an axis (bolt circle) |
 | `set_dimension(dimension_name, value_mm)` | Change a named driving dim (e.g. `D1@BlockExtrude`), rebuild, remeasure |
 | `set_equation(equation)` | Add a global equation linking dims (e.g. `"D1@BlockExtrude" = 25`) |
+| `set_material(name, database)` | Assign a material (e.g. `6061 Alloy`) so mass/density are real |
 | `rebuild(top_only)` | Force rebuild, report errors |
-| `get_mass_properties` | Volume, mass, surface area, centre of mass, bounding box |
+| `get_mass_properties` | Volume, mass, density, surface area, centre of mass, bounding box |
 | `get_bounding_box` | Tight part bounding box (min/max/size, mm) |
 | `list_faces` / `list_edges` | Inspect faces (normal/area/centre) and edges (type/axis/length) by index |
 | `export(path, file_format)` | STEP/STL/IGES/Parasolid/3MF (silent; verifies file on disk) |
 | `screenshot(path)` | Isometric, zoom-to-fit PNG/BMP/JPG |
+| `save_part(path)` / `open_part(path)` | Save to / open a native `.sldprt` |
 | `close_part(save)` | Close the current part |
 
 All linear dimensions are **millimetres**; the server converts to/from the
@@ -127,11 +131,12 @@ Two non-obvious design decisions, both load-bearing:
 
 ## Known limitations / roadmap
 
-- Geometry so far: **boxes**, **cylinders/cones** (revolve), **through-holes**,
+- Geometry so far: **boxes**, **cylinders/cones** (revolve), **arbitrary
+  extruded profiles**, **holes**, **polygon pockets/slots** (`cut_profile`),
   **fillets**, **chamfers**, **shells**, **linear + circular patterns** (bolt
-  circles), plus geometry **inspection** (`list_faces`/`list_edges`). Next:
-  mirror, holes on any face (sketch-frame transform), equations, generic sketch
-  primitives.
+  circles); plus **equations**, **materials**, geometry **inspection**, and
+  **save/open** of `.sldprt`. Next: mirror, features on non-+Z faces (sketch-frame
+  transform), sweep/loft, sketch arcs/splines.
 - Selection: plane walk, face-by-normal/direction (`_planar_face_by_normal`,
   `+z`/…), and edge selection by axis **or explicit index** (`_select_edges`).
   `list_faces`/`list_edges` let an agent inspect geometry before selecting;

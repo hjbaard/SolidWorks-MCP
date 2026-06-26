@@ -117,6 +117,21 @@ extends to cones (trapezoid profile) and general profiles.
   open 3392 / closed 4544 mm³. Returns no feature object (build dict inline).
 All verified + visual; 18 MCP tools; end-to-end green.
 
+### M4 — toolset expansion for AI-driven design 🚧
+A long autonomous run adding the capabilities an AI needs for advanced parts:
+- **`add_extruded_profile`** (`m4_profile.py`): extrude any closed polygon
+  `[[x,y],...]` (CreateLine loop + FeatureExtrusion3). L-bracket = shoelace area
+  1800 × 10 = 18000 mm³. The big unlock beyond box/cylinder/cone.
+- **`cut_profile`** (`m4_cut.py`): cut a polygon pocket/slot from the +Z face,
+  blind or through. 20×10 pocket -> blind 7200 / through 6000 mm³.
+- **`save_part` / `open_part`** (`m4_saveopen.py`): SaveAs3 to .sldprt / OpenDoc6;
+  build->save->close->open round-trip preserves volume.
+- **`set_material`** (`m4_material.py`): IPartDoc.SetMaterialPropertyName2 (DB=""
+  finds the default DB). 6061 Alloy -> 2700 kg/m³, mass 0.0216 kg. Mass props now
+  include `density_kg_m3`.
+- `scripts/demo_plate.py`: full autonomous design (plate + bore + 6-bolt circle +
+  rounded corners), spec-verified + exported.
+
 ## Key API findings (this build)
 
 These were read from the installed typelib (`scripts/introspect_api.py`), not
