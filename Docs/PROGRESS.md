@@ -143,18 +143,26 @@ mark 4** (via SelectByID2 with coords/name). The pattern follows the edge's
 p1->p2 direction; we flip it to match the requested axis. seed defaults to the
 last feature added (tree walk).
 
+### M4 — Circular pattern (bolt circle) 🚧
+`scripts/m4_circular.py` + `add_circular_pattern`: repeat a feature N times around
+an axis = the cylindrical face nearest a given centre (so a centre hole's wall is
+the axis — no reference-axis creation needed). Plate + centre hole + 6 bolt holes
+= 13800.885 mm³. Lessons: select the axis face by ITERATION + Select4 with a Mark
+via SelectionManager.CreateSelectData (SelectByID2-by-coordinate did NOT grab the
+internal cylinder); marks axis=1, seed=4; FeatureCircularPattern's Spacing is the
+PER-INSTANCE angle (360/count), not the total. This Select4+Mark machinery is now
+reusable for mirror and other selection-heavy features.
+
 ## Next
 
-- **Circular pattern + mirror** need a centre axis / mirror plane. The default
-  ref planes/axes sit at the origin, but add_box places parts corner-at-origin,
-  so they don't line up — needs reference-axis/plane creation (or centred parts).
-  A real next chunk, not a quick win.
+- **Mirror** (`InsertMirrorFeature2`) — now tractable with the Select4+Mark
+  machinery; needs a mirror plane (a ref plane or planar face).
 - **Holes on any face** (beyond +Z): the face-sketch 2D frame differs per face,
-  so (x,y) needs a model->sketch transform. Prerequisite for bolt circles.
+  so (x,y) needs a model->sketch transform.
 - General revolve: arbitrary (radius, z) profiles; generic sketch primitives.
 - Equations (`IEquationMgr`); richer rebuild-error reporting.
 - Worth doing soon: an end-to-end **agentic-loop demo** on a non-trivial spec to
-  validate the 19-tool set as a whole.
+  validate the 20-tool set as a whole.
 
 ## Notes
 

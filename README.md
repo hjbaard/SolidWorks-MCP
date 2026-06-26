@@ -18,7 +18,7 @@ Proven end-to-end against **SOLIDWORKS 2026 (3DEXPERIENCE R2026x)**:
 | M1 | new part → sketch rectangle → extrude → mass properties (volume matches hand calc) | ✅ |
 | M2 | change a named dimension → rebuild → volume changes predictably | ✅ |
 | M3 | full agent loop via the MCP server: build → measure → correct → export STEP/STL + screenshot | ✅ |
-| M4 | revolve (cylinder/cone), shell, hole, fillet/chamfer, linear pattern, geometry inspection | 🚧 ongoing |
+| M4 | revolve, shell, hole, fillet/chamfer, linear + circular pattern, geometry inspection | 🚧 ongoing |
 
 See [Docs/PROGRESS.md](Docs/PROGRESS.md) for the detailed log and roadmap.
 
@@ -84,6 +84,7 @@ Desktop / Claude Code) using the venv's Python:
 | `add_chamfer(distance_mm, edges, name)` | Chamfer edges at 45° (`edges`: `all`, axis, or indices) |
 | `add_shell(thickness_mm, open_face)` | Hollow to a wall thickness; open a face (`+z`/…) or `none` |
 | `add_linear_pattern(count, spacing_mm, direction, feature_name)` | Repeat a feature N times along `+x`/`-x`/… |
+| `add_circular_pattern(count, center_x_mm, center_y_mm, feature_name)` | Repeat a feature N times around an axis (bolt circle) |
 | `set_dimension(dimension_name, value_mm)` | Change a named driving dim (e.g. `D1@BlockExtrude`), rebuild, remeasure |
 | `rebuild(top_only)` | Force rebuild, report errors |
 | `get_mass_properties` | Volume, mass, surface area, centre of mass, bounding box |
@@ -126,10 +127,10 @@ Two non-obvious design decisions, both load-bearing:
 ## Known limitations / roadmap
 
 - Geometry so far: **boxes**, **cylinders/cones** (revolve), **through-holes**,
-  **fillets**, **chamfers**, **shells**, **linear patterns**, plus geometry
-  **inspection** (`list_faces`/`list_edges`). Next: circular pattern + mirror
-  (need a centre axis / plane), holes on any face (sketch-frame transform),
-  equations, generic sketch primitives.
+  **fillets**, **chamfers**, **shells**, **linear + circular patterns** (bolt
+  circles), plus geometry **inspection** (`list_faces`/`list_edges`). Next:
+  mirror, holes on any face (sketch-frame transform), equations, generic sketch
+  primitives.
 - Selection: plane walk, face-by-normal/direction (`_planar_face_by_normal`,
   `+z`/…), and edge selection by axis **or explicit index** (`_select_edges`).
   `list_faces`/`list_edges` let an agent inspect geometry before selecting;
