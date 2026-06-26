@@ -151,6 +151,15 @@ direction parsing, polygon cleaning) run with no SolidWorks in ~0.02s
 auto-skip if absent) verify every feature's volume against a hand calc. 34/34
 green. This replaces running the m4_*.py scripts by hand.
 
+### M4 — holes on any face (model→sketch transform) 🚧
+`add_hole_on_face(diameter, face, x, y, z)`: drill through any planar face at a 3D
+point. `_model_to_sketch_uv` maps a model point to the face-sketch's 2D frame via
+`ISketch.ModelToSketchTransform` + `IMathUtility.CreatePoint`/`MultiplyTransform`.
+Key gotcha: `CreatePoint` needs a `win32com.client.VARIANT(VT_ARRAY|VT_R8, [...])`
+— a plain Python list is mis-marshalled (garbage). Verified: side holes through
+the +X (40 mm) and +Y (20 mm) faces; 36 pytest tests green. Unblocks side holes,
+pockets on any face, and bolt circles on cylinder end-faces.
+
 ## Key API findings (this build)
 
 These were read from the installed typelib (`scripts/introspect_api.py`), not
