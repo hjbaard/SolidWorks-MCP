@@ -92,6 +92,7 @@ Desktop / Claude Code) using the venv's Python:
 | `add_cylinder(diameter_mm, height_mm, name)` | Cylinder by revolving a profile 360° about an axis (Y axis) |
 | `add_disc(diameter_mm, thickness_mm, name)` | Disc/puck/flange: circle extruded along +Z (holes/patterns compose) |
 | `add_cone(bottom_diameter_mm, top_diameter_mm, height_mm, name)` | Cone/frustum by revolve (top Ø = 0 → full cone) |
+| `add_revolved_profile(profile_mm, angle_deg, name)` | Revolve any closed `(radius, height)` profile about the axis (shafts, vases, rings) |
 | `add_extruded_profile(points_mm, depth_mm, name)` | Extrude any closed polygon `[[x,y],…]` (brackets, sections) |
 | `add_hole(diameter_mm, x_mm, y_mm, name)` | Cut a circular through-hole at (x, y) through the depth axis |
 | `add_hole_on_face(diameter_mm, face, x_mm, y_mm, z_mm, name)` | Through-hole on ANY planar face at a 3D point (side holes, etc.) |
@@ -153,8 +154,9 @@ Two non-obvious design decisions, both load-bearing:
   circles); plus **equations**, **materials**, geometry **inspection**, and
   **save/open** of `.sldprt`, **holes + pockets on any planar face**
   (model→sketch transform), **round flanges** (disc + bore + bolt circle), and
-  **slotted holes** (`cut_slot`, obround at any angle — the first arc-based sketch).
-  Next: sweep/loft, sketch splines. Mirror is shelved — both API routes fail
+  **slotted holes** (`cut_slot`, obround at any angle — the first arc-based sketch),
+  and **general revolves** (`add_revolved_profile`: any `(r,z)` profile → shafts,
+  vases, rings). Next: sweep/loft, sketch splines. Mirror is shelved — both routes fail
   on this build; an AI mirrors by placing features symmetrically.
 - Selection: plane walk, face-by-normal/direction (`_planar_face_by_normal`,
   `+z`/…), and edge selection by axis **or explicit index** (`_select_edges`).

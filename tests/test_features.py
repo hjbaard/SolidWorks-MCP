@@ -39,6 +39,24 @@ def test_disc(part):
     assert abs(vol(part.add_disc(40, 10)) - math.pi * 20 ** 2 * 10) < 0.1
 
 
+def test_revolve_cylinder(part):
+    # general revolve reproduces a cylinder: r=10, h=20
+    got = vol(part.add_revolved_profile([[0, 0], [10, 0], [10, 20], [0, 20]]))
+    assert abs(got - math.pi * 100 * 20) < 0.1
+
+
+def test_revolve_ring(part):
+    # profile offset from the axis -> annular ring: outer 10, inner 5, height 2
+    got = vol(part.add_revolved_profile([[5, 0], [10, 0], [10, 2], [5, 2]]))
+    assert abs(got - math.pi * (10 ** 2 - 5 ** 2) * 2) < 0.1
+
+
+def test_revolve_partial(part):
+    # 180 deg revolve removes exactly half the volume
+    got = vol(part.add_revolved_profile([[0, 0], [10, 0], [10, 20], [0, 20]], 180))
+    assert abs(got - math.pi * 100 * 20 / 2) < 0.1
+
+
 def test_round_flange(part):
     # disc + centre bore + bolt hole + 6x circular pattern = a round flange
     part.add_disc(80, 15)

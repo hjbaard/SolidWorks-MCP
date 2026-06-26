@@ -599,6 +599,48 @@ class SolidWorksSession:
             raise SolidWorksError("FeatureRevolve2 mislukte (None). Is het profiel gesloten?")
         return self._finish_feature(revolve, name)
 
+    def add_revolved_profile(self, profile_mm: list, angle_deg: float = 360.0,
+                             name: str = "Revolve") -> dict:
+        """Revolve a closed (radius, height) profile about the axis at radius 0.
+
+        profile_mm = [[r, z], ...] in mm: r is the distance from the revolve axis,
+        z the position along it. The polygon is auto-closed and spun `angle_deg`
+        (default 360) about r=0. Points touching the axis (r=0) give a solid like
+        add_cone; a profile offset from the axis gives a ring/torus cross-section.
+        The profile may not cross the axis (no negative r). Returns mass properties.
+        """
+        model = self._require_model()
+        pts = self._clean_polygon(profile_mm)
+        if any(r < -1e-9 for r, _ in pts):
+            raise SolidWorksError("radius (eerste coord) mag niet negatief zijn -- het profiel mag de as niet kruisen.")
+        if all(abs(r) < 1e-9 for r, _ in pts):
+            raise SolidWorksError("profiel ligt volledig op de as (alle radii 0).")
+        if not 0.0 < angle_deg <= 360.0:
+            raise SolidWorksError(f"angle moet in (0, 360] liggen (kreeg {angle_deg}).")
+
+        plane = self._first_ref_plane()
+        if plane is None:
+            raise SolidWorksError("Geen reference plane gevonden in de feature tree.")
+        if not plane.Select2(False, 0):
+            raise SolidWorksError("Kon de reference plane niet selecteren.")
+
+        z_vals = [z for _, z in pts]
+        sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
+        sk.InsertSketch(True)
+        self._draw_polygon_segments(sk, [(mm_to_m(r), mm_to_m(z)) for r, z in pts])
+        sk.CreateCenterLine(0.0, mm_to_m(min(z_vals)), 0.0, 0.0, mm_to_m(max(z_vals)), 0.0)
+        sk.InsertSketch(True)
+
+        feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
+        revolve = feat_mgr.FeatureRevolve2(
+            True, True, False, False, False, False,
+            SW_END_COND_BLIND, 0, deg_to_rad(angle_deg), 0.0,
+            False, False, 0.0, 0.0, 0, 0.0, 0.0, True, True, True,
+        )
+        if revolve is None:
+            raise SolidWorksError("FeatureRevolve2 mislukte (None). Is het profiel gesloten en geldig?")
+        return self._finish_feature(revolve, name)
+
     def add_hole(self, diameter_mm: float, x_mm: float, y_mm: float,
                  name: str = "Hole") -> dict:
         """Cut a circular through-hole at (x, y), straight through the depth axis.

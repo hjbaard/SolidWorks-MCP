@@ -100,6 +100,19 @@ async def add_cone(bottom_diameter_mm: float, top_diameter_mm: float,
 
 
 @mcp.tool()
+async def add_revolved_profile(profile_mm: list, angle_deg: float = 360.0,
+                               name: str = "Revolve") -> dict:
+    """Revolve a closed (radius, height) profile about the axis at radius 0.
+
+    profile_mm = [[r, z], …] in mm: r = distance from the axis, z = position along
+    it. Auto-closed and spun angle_deg (default 360°). Points at r=0 give a solid
+    (turned shafts, vases); a profile offset from the axis gives a ring/torus. The
+    profile may not cross the axis. Returns mass properties. Use new_part first.
+    """
+    return await _call(_session.add_revolved_profile, profile_mm, angle_deg, name)
+
+
+@mcp.tool()
 async def add_hole(diameter_mm: float, x_mm: float, y_mm: float, name: str = "Hole") -> dict:
     """Cut a circular through-hole at (x_mm, y_mm), through the part's depth axis.
 

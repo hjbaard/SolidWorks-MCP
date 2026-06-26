@@ -183,6 +183,18 @@ Box 40x20x10, L=20/W=10 slot 5 mm deep -> removed `(L·W + π(W/2)²)·d` = 1392
 6607.30 mm³ (matches hand calc). Cut blind or through via the existing FeatureCut4.
 This is the building block for rounded profiles generally.
 
+### M4 — general revolve 🚧
+`add_revolved_profile(profile, angle)`: revolve any closed `(radius, height)`
+polygon about the axis at r=0 (like add_extruded_profile, but spun instead of
+extruded). Generalises the cone's revolve plumbing: reuses `_clean_polygon` +
+`_draw_polygon_segments`, draws the profile in the (x=r, y=z) plane on Front, adds
+a centreline along the axis spanning the profile's z-range, then FeatureRevolve2.
+Guards: no negative radius (can't cross the axis), not all-on-axis, angle in
+(0,360]. Verified vs hand calc: cylinder r10/h20 = 6283.19, **ring** (profile
+offset from axis, outer10/inner5/h2) = 471.24, frustum = 3665.19, **half** (180°)
+cylinder = 3141.59. Unlocks turned shafts, vases, rings/torus cross-sections, and
+partial revolves -- the cone/cylinder are now just special cases.
+
 ## Key API findings (this build)
 
 These were read from the installed typelib (`scripts/introspect_api.py`), not
