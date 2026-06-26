@@ -212,13 +212,36 @@ straight 50mm Ø10 = 3926.99, L-bend (R10) = 4375.29, U-bend (R8) = 7314.63 -- a
 exact. Determinism over the native sketch-fillet API (which needs fiddly per-vertex
 sketch-point selection). Path is planar (2D) for now; a 3D path is the next step.
 
+### Review-hardening pass (2026-06-26)
+Multi-agent adversarial review of cut_slot/add_revolved_profile/add_swept_pipe
+(24 findings, 18 confirmed). Fixes applied:
+- **`_round_polyline` (critical)**: per-corner radius-fit missed two corners SHARING
+  a segment -- their setbacks could sum past the shared length, self-overlapping the
+  path; SolidWorks then failed opaquely. Now a 3-pass pure function: compute corner
+  fillets, validate adjacent-corner setback sums vs the inter-vertex distance, then
+  emit (skipping any zero-length connecting line). Fails fast in pure code.
+- **`_round_polyline` (foldback)**: split the collinear guard -- theta~pi (straight
+  pass) is skipped, theta~0 (180deg fold-back) now RAISES instead of silently
+  flattening the excursion.
+- **`add_swept_pipe` (2x high)**: (a) now selects the Front ref plane explicitly
+  before InsertSketch (every other builder does; it had relied on default selection
+  -> silent wrong-plane risk). (b) captures the path sketch via a before/after
+  ProfileFeature-name diff instead of `_last_sketch_name` (robust to pre-existing
+  sketches; `_last_sketch_name` removed as dead code).
+- Tests: 67 green (was 52). Added pure geometry tests (right/obtuse/acute corners,
+  S-chain, overlap+foldback raises, 2-pt-ignores-radius) and integration tests
+  (S-bend pipe = both arc dirs end-to-end, revolve guards + 360 boundary, diameter
+  guard, 45deg slot through).
+API args (InsertProtrusionSwept4 / FeatureRevolve2 / CreateArc / CreateSketchSlot)
+were re-checked against the typelib -- no mismatches.
+
 ### Flaky test note (2026-06-26)
 `test_cut_profile_through` failed ONCE in a full 52-test run (got vol 3000 vs 6000)
 but passes in isolation and on re-run -- non-deterministic state bleed under rapid
-new_part/close_part cycling, not a code regression (the new revolve/pipe tests just
-add more create/close cycles, surfacing it). Pre-existing; the `part` fixture
-already closes each doc. Worth hardening the fixture (verify the new doc is active
-after CloseDoc) but kept separate from feature work; no sleep/poll band-aids.
+new_part/close_part cycling. The review's flaky-test hypothesis could NOT be
+confirmed statically (no concrete root cause), so NO speculative fix was applied to
+new_part/close_part. Pre-existing; the `part` fixture already closes each doc.
+Revisit only with a reproduction; no sleep/poll band-aids.
 
 ## Key API findings (this build)
 

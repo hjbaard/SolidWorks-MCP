@@ -9,6 +9,8 @@ import math
 
 import pytest
 
+from solidworks_mcp.errors import SolidWorksError
+
 pytestmark = pytest.mark.solidworks
 
 
@@ -57,6 +59,34 @@ def test_revolve_partial(part):
     assert abs(got - math.pi * 100 * 20 / 2) < 0.1
 
 
+def test_revolve_angle_360_full_volume(part):
+    # 360 is the inclusive upper bound -> full revolve, must NOT raise
+    got = vol(part.add_revolved_profile([[0, 0], [10, 0], [10, 20], [0, 20]], 360))
+    assert abs(got - math.pi * 100 * 20) < 0.1
+
+
+def test_revolve_negative_radius_raises(part):
+    # profile crossing the axis (negative r) must fail fast, not build a garbage solid
+    with pytest.raises(SolidWorksError):
+        part.add_revolved_profile([[5, 0], [-5, 0], [-5, 10], [5, 10]])
+
+
+def test_revolve_on_axis_raises(part):
+    # all radii 0 -> profile lies on the axis (zero-volume); must fail fast
+    with pytest.raises(SolidWorksError):
+        part.add_revolved_profile([[0, 0], [0, 10], [0, 20]])
+
+
+def test_revolve_angle_zero_raises(part):
+    with pytest.raises(SolidWorksError):
+        part.add_revolved_profile([[0, 0], [10, 0], [10, 20], [0, 20]], 0)
+
+
+def test_revolve_angle_over_360_raises(part):
+    with pytest.raises(SolidWorksError):
+        part.add_revolved_profile([[0, 0], [10, 0], [10, 20], [0, 20]], 361)
+
+
 def test_swept_pipe_straight(part):
     # straight 50 mm path, Ø10 -> cylinder r=5: pi*25*50 (Pappus)
     got = vol(part.add_swept_pipe([[0, 0], [50, 0]], 10))
@@ -68,6 +98,19 @@ def test_swept_pipe_L_bend(part):
     length = 20 + 20 + math.pi / 2 * 10
     got = vol(part.add_swept_pipe([[0, 0], [30, 0], [30, 30]], 10, 10))
     assert abs(got - math.pi * 25 * length) < 0.5
+
+
+def test_swept_pipe_S_bend(part):
+    # S-path: left turn then right turn -> exercises BOTH arc directions end-to-end.
+    # straights 30+20+30 = 80, two quarter arcs = 2*(pi/2)*10 = 10*pi
+    length = 80 + 10 * math.pi
+    got = vol(part.add_swept_pipe([[0, 0], [40, 0], [40, 40], [80, 40]], 10, 10))
+    assert abs(got - math.pi * 25 * length) < 0.5
+
+
+def test_swept_pipe_zero_diameter_raises(part):
+    with pytest.raises(SolidWorksError):
+        part.add_swept_pipe([[0, 0], [50, 0]], 0)
 
 
 def test_round_flange(part):
@@ -157,6 +200,13 @@ def test_cut_slot_angled_same_volume(part):
     part.add_box(40, 20, 10)
     area = 10 * 8 + math.pi * 4 ** 2
     assert abs(vol(part.cut_slot(10, 8, 20, 10, 90, 5)) - (8000 - area * 5)) < 0.5
+
+
+def test_cut_slot_angled_through(part):
+    # 45-degree slot cut THROUGH the plate; slot area is rotation-invariant
+    part.add_box(40, 20, 10)
+    area = 8 * 6 + math.pi * 3 ** 2
+    assert abs(vol(part.cut_slot(8, 6, 20, 10, 45, None)) - (8000 - area * 10)) < 1.0
 
 
 def test_fillet_all_edges(part):

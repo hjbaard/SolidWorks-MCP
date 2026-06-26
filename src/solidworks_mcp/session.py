@@ -420,8 +420,8 @@ class SolidWorksSession:
         if radius_mm <= 0:
             raise SolidWorksError("bend_radius moet > 0 zijn voor een pad met hoeken.")
 
-        segs = []
-        cur = clean[0]
+        # Pass 1: fillet geometry per interior corner that genuinely turns.
+        corners = []
         for i in range(1, len(clean) - 1):
             a, v, b = clean[i - 1], clean[i], clean[i + 1]
             ax, ay = a[0] - v[0], a[1] - v[1]
@@ -429,8 +429,12 @@ class SolidWorksSession:
             la, lb = math.hypot(ax, ay), math.hypot(bx, by)
             ax, ay, bx, by = ax / la, ay / la, bx / lb, by / lb
             theta = math.acos(max(-1.0, min(1.0, ax * bx + ay * by)))
-            if theta < 1e-6 or abs(theta - math.pi) < 1e-6:
-                continue  # collinear: no corner to round
+            if abs(theta - math.pi) < 1e-6:
+                continue  # collinear straight-through: no corner to round
+            if theta < 1e-6:
+                raise SolidWorksError(
+                    f"pad keert terug op zichzelf bij punt {i}; een sweep-pad mag niet 180 graden terugvouwen."
+                )
             setback = radius_mm / math.tan(theta / 2.0)
             if setback > la - 1e-9 or setback > lb - 1e-9:
                 raise SolidWorksError(f"bend_radius {radius_mm} te groot voor het segment bij punt {i}.")
@@ -441,9 +445,28 @@ class SolidWorksSession:
             dist_c = radius_mm / math.sin(theta / 2.0)
             c = (v[0] + bisx / lbis * dist_c, v[1] + bisy / lbis * dist_c)
             cross = (t_in[0] - c[0]) * (t_out[1] - c[1]) - (t_in[1] - c[1]) * (t_out[0] - c[0])
-            segs.append(("line", cur, t_in))
-            segs.append(("arc", c, t_in, t_out, 1 if cross > 0 else -1))
-            cur = t_out
+            corners.append({"i": i, "setback": setback, "t_in": t_in, "t_out": t_out,
+                            "c": c, "dir": 1 if cross > 0 else -1})
+
+        # Pass 2: two corners sharing a segment must not both eat past its length.
+        # Use the distance between corner VERTICES (collinear points between them
+        # were skipped and consume no setback).
+        for prev, nxt in zip(corners, corners[1:]):
+            shared = math.dist(clean[prev["i"]], clean[nxt["i"]])
+            if prev["setback"] + nxt["setback"] > shared - 1e-9:
+                raise SolidWorksError(
+                    f"bend_radius {radius_mm} te groot: bochten bij punt {prev['i']} en {nxt['i']} "
+                    "overlappen op het tussensegment."
+                )
+
+        # Pass 3: emit segments, skipping any zero-length connecting line.
+        segs = []
+        cur = clean[0]
+        for corner in corners:
+            if math.dist(cur, corner["t_in"]) > 1e-9:
+                segs.append(("line", cur, corner["t_in"]))
+            segs.append(("arc", corner["c"], corner["t_in"], corner["t_out"], corner["dir"]))
+            cur = corner["t_out"]
         segs.append(("line", cur, clean[-1]))
         return segs
 
@@ -705,6 +728,15 @@ class SolidWorksSession:
             raise SolidWorksError(f"diameter moet > 0 zijn (kreeg {diameter_mm}).")
         segs = self._round_polyline(path_mm, bend_radius_mm)
 
+        # Pin the path sketch to the Front plane regardless of prior selection
+        # state (every other builder selects its plane explicitly before sketching).
+        plane = self._first_ref_plane()
+        if plane is None:
+            raise SolidWorksError("Geen reference plane gevonden in de feature tree.")
+        if not plane.Select2(False, 0):
+            raise SolidWorksError("Kon de reference plane niet selecteren.")
+
+        before = self._profile_feature_names()
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
         sk.InsertSketch(True)
         for s in segs:
@@ -723,7 +755,12 @@ class SolidWorksSession:
                     raise SolidWorksError("Kon een padboog niet maken.")
         sk.InsertSketch(True)  # close the path sketch
 
-        path_name = self._last_sketch_name()
+        new_names = self._profile_feature_names() - before
+        if len(new_names) != 1:
+            raise SolidWorksError(
+                f"Kon het zojuist getekende pad niet identificeren (verwachtte 1 nieuwe sketch, vond {len(new_names)})."
+            )
+        path_name = new_names.pop()
         model.ClearSelection2(True)
         ext = binding.wrap(model.Extension, self._mod.IModelDocExtension)
         if not ext.SelectByID2(path_name, "SKETCH", 0.0, 0.0, 0.0, False, 4, None, 0):  # mark 4 = sweep path
@@ -1124,20 +1161,23 @@ class SolidWorksSession:
         "ProfileFeature", "OriginProfileFeature",
     }
 
-    def _last_sketch_name(self) -> str:
-        """Name of the most recent sketch (ProfileFeature) -- e.g. a sweep path."""
+    def _profile_feature_names(self) -> set:
+        """Names of all sketches (ProfileFeature) in the tree.
+
+        A before/after diff around drawing a sketch identifies exactly the one
+        just created -- robust to pre-existing sketches and tree ordering, unlike
+        a 'last ProfileFeature' assumption.
+        """
+        names = set()
         feat = binding.wrap(self._model.FirstFeature(), self._mod.IFeature)
-        name = None
         while feat is not None:
             try:
                 if feat.GetTypeName2() == "ProfileFeature":
-                    name = feat.Name
+                    names.add(feat.Name)
             except pythoncom.com_error:
                 pass
             feat = binding.wrap(feat.GetNextFeature(), self._mod.IFeature)
-        if name is None:
-            raise SolidWorksError("Geen sketch (ProfileFeature) gevonden.")
-        return name
+        return names
 
     def _last_feature_name(self) -> str:
         """Name of the most recent body-modifying feature (the default pattern seed).
