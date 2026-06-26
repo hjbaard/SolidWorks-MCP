@@ -8,7 +8,14 @@ The point isn't just "make geometry". Parametric CAD gives *hard, verifiable
 signals* (rebuild status, mass properties, measurements, bounding box), which
 makes an agentic correction loop realistic instead of "it looks about right".
 
-## Status (v0)
+> ⚠️ **Early first draft (v0.1).** This is an initial, experimental release. It
+> works end-to-end on the author's setup (SOLIDWORKS 2026 / 3DEXPERIENCE R2026x),
+> and every feature is verified against a hand calculation — but the tool surface
+> and conventions may still change, and it has only been tested against one
+> SolidWorks build. Use it as a starting point, not a finished product. Feedback
+> and contributions are welcome. See [CHANGELOG.md](CHANGELOG.md).
+
+## Status (v0.1)
 
 Proven end-to-end against **SOLIDWORKS 2026 (3DEXPERIENCE R2026x)**:
 
@@ -39,7 +46,34 @@ python -m venv .venv
 
 This installs `pywin32` + the `mcp` SDK and the `solidworks-mcp` package
 (editable). The first COM call generates the SolidWorks typelib wrappers
-automatically.
+automatically (this can take a few seconds the very first time).
+
+## Quickstart
+
+1. **Start SolidWorks** and leave it open (the server attaches to the running
+   instance — it does not launch one).
+2. Install the package into a venv (see [Setup](#setup)).
+3. Sanity-check the connection: `.\.venv\Scripts\python.exe scripts\probe_connection.py`
+   should report the SolidWorks revision and active document.
+4. Build something end-to-end: `.\.venv\Scripts\python.exe scripts\m5_demo_bracket.py`
+   builds a mounting bracket and verifies every step against a hand calculation.
+5. To use it as an MCP server from an AI client, see [Use as an MCP server](#use-as-an-mcp-server).
+
+## Troubleshooting
+
+- **"Geen draaiende SolidWorks gevonden" / connection fails** — SolidWorks must be
+  *running* before you start the server or run a script; it attaches to the active
+  instance via `GetActiveObject` and does not launch one.
+- **First call is slow or `EnsureModule` errors** — the first COM call generates the
+  makepy typelib wrappers under your temp `gen_py` folder. Let it finish; if it gets
+  into a bad state, delete the `gen_py` cache and retry. Early binding is mandatory on
+  this build (see [Architecture](#architecture)).
+- **A feature returns `{ok: false, error: ...}`** — that is by design: every tool
+  fails loud with a readable (Dutch) message rather than silently producing wrong
+  geometry. Read the message; it names the likely cause.
+- **Only tested against SOLIDWORKS 2026 (3DEXPERIENCE R2026x).** On other builds the
+  verified enum values or method signatures may differ — re-run
+  `scripts/introspect_api.py` to inspect your installed typelib.
 
 ## Run the verification scripts
 
