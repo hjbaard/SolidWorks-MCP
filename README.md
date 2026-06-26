@@ -114,7 +114,7 @@ Desktop / Claude Code) using the venv's Python:
 | `get_mass_properties` | Volume, mass, density, surface area, centre of mass, bounding box |
 | `get_bounding_box` | Tight part bounding box (min/max/size, mm) |
 | `list_faces` / `list_edges` | Inspect faces (normal/area/centre) and edges (type/axis/length) by index |
-| `export(path, file_format)` | STEP/STL/IGES/Parasolid/3MF (silent; verifies file on disk) |
+| `export(path, file_format, quality, deviation_mm, angle_deg)` | STEP/STL/IGES/Parasolid/3MF (silent; verifies file). STL/3MF tessellation: `quality` `coarse`/`fine`, or explicit `deviation_mm`+`angle_deg` |
 | `screenshot(path)` | Isometric, zoom-to-fit PNG/BMP/JPG |
 | `save_part(path)` / `open_part(path)` | Save to / open a native `.sldprt` |
 | `close_part(save)` | Close the current part |

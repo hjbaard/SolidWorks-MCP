@@ -335,3 +335,20 @@ def test_save_open_roundtrip(part, tmp_path):
     part.close_part()
     part.open_part(path)
     assert abs(vol(part.get_mass_properties()) - 8000) < 0.01
+
+
+def test_export_stl_resolution(part, tmp_path):
+    # a curved part tessellates finer at 'fine' -> more triangles -> bigger STL file
+    part.add_disc(40, 10)
+    coarse = part.export(str(tmp_path / "coarse.stl"), quality="coarse")["bytes"]
+    fine = part.export(str(tmp_path / "fine.stl"), quality="fine")["bytes"]
+    assert fine > coarse
+
+
+def test_export_restores_stl_prefs(part, tmp_path):
+    # the global STL quality pref must be unchanged after an export (save/restore)
+    from solidworks_mcp.constants import SW_STL_QUALITY
+    before = part._sw.GetUserPreferenceIntegerValue(SW_STL_QUALITY)
+    part.add_disc(40, 10)
+    part.export(str(tmp_path / "x.stl"), quality="coarse")
+    assert part._sw.GetUserPreferenceIntegerValue(SW_STL_QUALITY) == before

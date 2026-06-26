@@ -32,6 +32,12 @@ from .constants import (
     SW_SLOT_CREATION_LINE,
     SW_SLOT_LENGTH_CENTER,
     SW_START_SKETCH_PLANE,
+    SW_STL_ANGLE_TOLERANCE,
+    SW_STL_DEVIATION,
+    SW_STL_QUALITY,
+    SW_STL_QUALITY_COARSE,
+    SW_STL_QUALITY_CUSTOM,
+    SW_STL_QUALITY_FINE,
     SW_TOGGLE_INPUT_DIM_VAL_ON_CREATE,
     SW_VIEW_ISOMETRIC,
 )
@@ -1683,11 +1689,56 @@ class SolidWorksSession:
 
     # --- output ---------------------------------------------------------------
 
-    def export(self, path: str, file_format: str | None = None) -> dict:
+    _MESH_EXPORT_FORMATS = {"stl", "3mf"}
+
+    def _apply_stl_resolution(self, quality: str, deviation_mm, angle_deg) -> dict:
+        """Set the global STL/3MF tessellation prefs; return the prior values.
+
+        quality 'coarse'|'fine'; or pass deviation_mm (+ optional angle_deg) for a
+        reproducible Custom resolution (overrides quality). Caller MUST restore the
+        returned values afterwards -- these are application-wide preferences.
+        """
+        if deviation_mm is not None and deviation_mm <= 0:
+            raise SolidWorksError(f"deviation_mm moet > 0 zijn (kreeg {deviation_mm}).")
+        if angle_deg is not None and angle_deg <= 0:
+            raise SolidWorksError(f"angle_deg moet > 0 zijn (kreeg {angle_deg}).")
+        levels = {"coarse": SW_STL_QUALITY_COARSE, "fine": SW_STL_QUALITY_FINE}
+        if deviation_mm is None and quality not in levels:
+            raise SolidWorksError(f"quality moet 'coarse' of 'fine' zijn (kreeg '{quality}').")
+
+        sw = self._sw
+        old = {
+            "quality": sw.GetUserPreferenceIntegerValue(SW_STL_QUALITY),
+            "deviation": sw.GetUserPreferenceDoubleValue(SW_STL_DEVIATION),
+            "angle": sw.GetUserPreferenceDoubleValue(SW_STL_ANGLE_TOLERANCE),
+        }
+        if deviation_mm is not None:
+            sw.SetUserPreferenceIntegerValue(SW_STL_QUALITY, SW_STL_QUALITY_CUSTOM)
+            sw.SetUserPreferenceDoubleValue(SW_STL_DEVIATION, mm_to_m(deviation_mm))
+            if angle_deg is not None:
+                sw.SetUserPreferenceDoubleValue(SW_STL_ANGLE_TOLERANCE, deg_to_rad(angle_deg))
+        else:
+            sw.SetUserPreferenceIntegerValue(SW_STL_QUALITY, levels[quality])
+        return old
+
+    def _restore_stl_resolution(self, old: dict) -> None:
+        """Restore STL prefs saved by _apply_stl_resolution (no lasting side effect)."""
+        sw = self._sw
+        sw.SetUserPreferenceIntegerValue(SW_STL_QUALITY, old["quality"])
+        sw.SetUserPreferenceDoubleValue(SW_STL_DEVIATION, old["deviation"])
+        sw.SetUserPreferenceDoubleValue(SW_STL_ANGLE_TOLERANCE, old["angle"])
+
+    def export(self, path: str, file_format: str | None = None, quality: str = "fine",
+               deviation_mm: float | None = None, angle_deg: float | None = None) -> dict:
         """Export the current part (STEP/STL/IGES/Parasolid/3MF/image) via SaveAs3.
 
         Silent (no overwrite prompt). Success is verified by checking the file
         actually appears on disk, because SaveAs3's return code is unreliable.
+
+        For STL/3MF, tessellation resolution is applied first (and restored after):
+        quality 'coarse'|'fine' (default 'fine' for print quality), or pass
+        deviation_mm (+ optional angle_deg) for a reproducible Custom resolution
+        (overrides quality). Ignored for STEP/IGES/Parasolid/images.
         """
         self._require_model()
         fmt = (file_format or os.path.splitext(path)[1].lstrip(".")).lower()
@@ -1696,8 +1747,18 @@ class SolidWorksSession:
                 f"Onbekend exportformaat '{fmt}'. Toegestaan: {sorted(EXPORT_FORMATS)}."
             )
         abs_path = os.path.abspath(path)
-        self._write_via_saveas3(abs_path)
-        return {"ok": True, "path": abs_path, "format": fmt, "bytes": os.path.getsize(abs_path)}
+        result = {"ok": True, "path": abs_path, "format": fmt}
+        if fmt in self._MESH_EXPORT_FORMATS:
+            old = self._apply_stl_resolution(quality, deviation_mm, angle_deg)
+            try:
+                self._write_via_saveas3(abs_path)
+            finally:
+                self._restore_stl_resolution(old)
+            result["resolution"] = "custom" if deviation_mm is not None else quality
+        else:
+            self._write_via_saveas3(abs_path)
+        result["bytes"] = os.path.getsize(abs_path)
+        return result
 
     def screenshot(self, path: str) -> dict:
         """Isometric, zoom-to-fit screenshot of the current part to PNG/BMP/JPG.

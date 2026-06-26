@@ -334,12 +334,16 @@ async def list_edges() -> dict:
 
 
 @mcp.tool()
-async def export(path: str, file_format: str | None = None) -> dict:
+async def export(path: str, file_format: str | None = None, quality: str = "fine",
+                 deviation_mm: float | None = None, angle_deg: float | None = None) -> dict:
     """Export the current part to STEP/STL/IGES/Parasolid/3MF (format inferred from extension).
 
     Silent (no prompts). Verifies the file appears on disk and reports its size.
+    For STL/3MF, tessellation resolution is set first: quality 'coarse'|'fine'
+    (default 'fine' for print quality), or pass deviation_mm (+ optional angle_deg)
+    for a reproducible custom resolution (overrides quality). Ignored for other formats.
     """
-    return await _call(_session.export, path, file_format)
+    return await _call(_session.export, path, file_format, quality, deviation_mm, angle_deg)
 
 
 @mcp.tool()
