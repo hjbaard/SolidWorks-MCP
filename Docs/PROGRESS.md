@@ -262,6 +262,20 @@ confirmed statically (no concrete root cause), so NO speculative fix was applied
 new_part/close_part. Pre-existing; the `part` fixture already closes each doc.
 Revisit only with a reproduction; no sleep/poll band-aids.
 
+### On-face fail-fast guard (2026-06-26)
+`add_hole_on_face` / `cut_profile_on_face` document that the supplied (x,y,z) must
+LIE on the chosen face, but nothing enforced it: `_model_to_sketch_uv` projected the
+point onto the face-sketch plane and dropped the out-of-plane component, so a point a
+few mm off the face was silently relocated to the projected spot (an error-masking gap
+vs CLAUDE.md fail-fast). Verified empirically (throwaway script): ModelToSketchTransform's
+`local[2]` is **exactly 0.0** for an on-face point and **equals the off-face distance**
+otherwise (a 5 mm off-face point gave -5.000e-3 m with identical u,v), and the old code
+drilled the hole anyway. Fix: `_model_to_sketch_uv` now takes `face` and raises a Dutch
+`SolidWorksError` naming the face, point (mm) and measured offset when `abs(local[2])`
+exceeds `_ON_FACE_TOLERANCE_MM = 1e-3` (1 um -- ~5000x below a real mistake, absorbs
+transform round-off). Tests: 73 green (added off-face raises for both callers; on-face
+happy paths unchanged).
+
 ## Key API findings (this build)
 
 These were read from the installed typelib (`scripts/introspect_api.py`), not

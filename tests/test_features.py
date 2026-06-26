@@ -188,6 +188,14 @@ def test_hole_on_y_face(part):
     assert abs(vol(r) - (8000 - math.pi * 16 * 20)) < 0.1
 
 
+def test_hole_on_face_off_face_raises(part):
+    # Fail-fast: a point 5 mm off the +X face must error, not be silently
+    # projected onto it (x=35 instead of the on-face x=40).
+    part.add_box(40, 20, 10)
+    with pytest.raises(SolidWorksError):
+        part.add_hole_on_face(8, "+x", 35, 10, 5)
+
+
 def test_cut_profile_blind(part):
     part.add_box(40, 20, 10)
     pts = [[10, 5], [30, 5], [30, 15], [10, 15]]  # 20x10 pocket
@@ -206,6 +214,15 @@ def test_cut_profile_on_side_face(part):
     pts = [[40, 5, 2], [40, 15, 2], [40, 15, 8], [40, 5, 8]]
     r = part.cut_profile_on_face(pts, "+x", 5)
     assert abs(vol(r) - (8000 - 10 * 6 * 5)) < 0.1
+
+
+def test_cut_profile_on_face_off_face_raises(part):
+    # Fail-fast: one vertex 2 mm off the +X face (x=38) must error, not be
+    # silently projected onto the face.
+    part.add_box(40, 20, 10)
+    pts = [[40, 5, 2], [40, 15, 2], [38, 15, 8], [40, 5, 8]]
+    with pytest.raises(SolidWorksError):
+        part.cut_profile_on_face(pts, "+x", 5)
 
 
 def test_cut_slot_blind(part):

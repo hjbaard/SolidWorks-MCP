@@ -926,17 +926,38 @@ class SolidWorksSession:
             )
         return self._finish_feature(cut, name)
 
-    def _model_to_sketch_uv(self, sketch, x_m, y_m, z_m):
+    # A point given to add_hole_on_face / cut_profile_on_face must LIE on the
+    # chosen face. ModelToSketchTransform's out-of-plane component (local[2]) is
+    # exactly 0 for an on-face point (verified) and equals the off-face distance
+    # otherwise; without this guard the 2D projection silently relocates the
+    # feature onto the face. 1 um catches any real mistake by orders of magnitude
+    # while absorbing transform round-off.
+    _ON_FACE_TOLERANCE_MM = 1e-3
+
+    def _model_to_sketch_uv(self, sketch, x_m, y_m, z_m, face):
         """Map a 3D model point (m) to the active sketch's local 2D (u, v) (m).
 
         Via ISketch.ModelToSketchTransform. The point must be a proper SAFEARRAY
         VARIANT -- a plain Python list is mis-marshalled by CreatePoint.
+
+        The point must LIE on the sketch's face: local[2] is its perpendicular
+        distance to the face plane, which we reject past _ON_FACE_TOLERANCE_MM so
+        an off-face point fails fast instead of being silently projected onto the
+        face (which would place the feature at the wrong spot). `face` names the
+        face in the error.
         """
         xform = binding.wrap(sketch.ModelToSketchTransform, self._mod.IMathTransform)
         mathutil = binding.wrap(self._sw.GetMathUtility(), self._mod.IMathUtility)
         coords = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, [x_m, y_m, z_m])
         p = binding.wrap(mathutil.CreatePoint(coords), self._mod.IMathPoint)
         local = binding.wrap(p.MultiplyTransform(xform), self._mod.IMathPoint).ArrayData
+        off_mm = m_to_mm(local[2])
+        if abs(off_mm) > self._ON_FACE_TOLERANCE_MM:
+            raise SolidWorksError(
+                f"Punt ({m_to_mm(x_m):g}, {m_to_mm(y_m):g}, {m_to_mm(z_m):g}) mm ligt niet "
+                f"op het {face}-vlak: het staat {off_mm:.3f} mm buiten het vlak. Geef een "
+                f"punt op het vlak (loodrechte afstand moet ~0 zijn)."
+            )
         return local[0], local[1]
 
     def add_hole_on_face(self, diameter_mm: float, face: str,
@@ -957,7 +978,7 @@ class SolidWorksSession:
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
         sk.InsertSketch(True)
         sketch = binding.wrap(sk.ActiveSketch, self._mod.ISketch)
-        u, v = self._model_to_sketch_uv(sketch, mm_to_m(x_mm), mm_to_m(y_mm), mm_to_m(z_mm))
+        u, v = self._model_to_sketch_uv(sketch, mm_to_m(x_mm), mm_to_m(y_mm), mm_to_m(z_mm), face)
         circle = sk.CreateCircleByRadius(u, v, 0.0, mm_to_m(diameter_mm / 2.0))
         sk.InsertSketch(True)
         if not circle:
@@ -1030,7 +1051,7 @@ class SolidWorksSession:
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
         sk.InsertSketch(True)
         sketch = binding.wrap(sk.ActiveSketch, self._mod.ISketch)
-        uv_m = [self._model_to_sketch_uv(sketch, mm_to_m(p[0]), mm_to_m(p[1]), mm_to_m(p[2]))
+        uv_m = [self._model_to_sketch_uv(sketch, mm_to_m(p[0]), mm_to_m(p[1]), mm_to_m(p[2]), face)
                 for p in points_mm]
         self._draw_polygon_segments(sk, self._clean_polygon(uv_m))
         model.ClearSelection2(True)
