@@ -151,6 +151,21 @@ async def add_hole(diameter_mm: float, x_mm: float, y_mm: float, name: str = "Ho
 
 
 @mcp.tool()
+async def add_counterbore_hole(clearance_diameter_mm: float, cbore_diameter_mm: float,
+                               cbore_depth_mm: float, x_mm: float, y_mm: float,
+                               name: str = "Counterbore") -> dict:
+    """Cut a counterbored screw hole on the +Z face at (x_mm, y_mm).
+
+    A clearance shank through the thickness plus a larger coaxial flat-bottom
+    pocket of cbore_depth_mm from the top — so a cap-head screw or heat-set insert
+    sits flush/recessed (common for 3D-printed parts). cbore_diameter must exceed
+    clearance_diameter. Coordinates share add_box's system. Returns mass properties.
+    """
+    return await _call(_session.add_counterbore_hole, clearance_diameter_mm,
+                       cbore_diameter_mm, cbore_depth_mm, x_mm, y_mm, name)
+
+
+@mcp.tool()
 async def add_hole_on_face(diameter_mm: float, face: str,
                            x_mm: float, y_mm: float, z_mm: float, name: str = "Hole") -> dict:
     """Drill a through-hole on ANY planar face, centred at 3D point (x, y, z) mm.

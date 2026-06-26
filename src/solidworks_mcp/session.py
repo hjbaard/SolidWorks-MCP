@@ -871,26 +871,17 @@ class SolidWorksSession:
             )
         return self._finish_feature(loft, name)
 
-    def add_hole(self, diameter_mm: float, x_mm: float, y_mm: float,
-                 name: str = "Hole") -> dict:
-        """Cut a circular through-hole at (x, y), straight through the depth axis.
+    def _cut_circle_on_z(self, model, diameter_mm: float, x_mm: float, y_mm: float,
+                         through: bool, depth_mm: float = 0.0):
+        """Cut one circle on the +Z face -- through-all or blind to depth_mm.
 
-        Selects the +Z face (the face parallel to add_box's width x height
-        profile) and cuts through all material to the opposite face -- i.e. a hole
-        through a plate's thickness, along the extrude direction. (x_mm, y_mm) are
-        in add_box's coordinate system, so the centre of a 40x20 profile is x=20,
-        y=10. Returns the resulting mass properties.
-
-        Sketching on this face -- rather than on a reference plane coincident with
-        the opposite face -- is what makes the cut direction unambiguous.
+        Returns the raw FeatureCut4 feature (or None on failure) so callers attach
+        their own error message. Shared by add_hole and add_counterbore_hole;
+        sketching on the selected +Z face is what makes the cut direction
+        unambiguous. (x_mm, y_mm) are in add_box coordinates.
         """
-        model = self._require_model()
-        if diameter_mm <= 0:
-            raise SolidWorksError(f"diameter moet > 0 zijn (kreeg {diameter_mm}).")
-
         body = self._solid_body()
         self._select_planar_face(body, (0.0, 0.0, 1.0), "+Z")
-
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
         sk.InsertSketch(True)  # the sketch is created on the selected face
         circle = sk.CreateCircleByRadius(
@@ -899,11 +890,13 @@ class SolidWorksSession:
         if not circle:
             raise SolidWorksError("Cirkel-sketch mislukte: CreateCircleByRadius gaf niets terug.")
 
+        t1 = SW_END_COND_THROUGH_ALL if through else SW_END_COND_BLIND
+        d1 = 0.0 if through else mm_to_m(depth_mm)
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
-        cut = feat_mgr.FeatureCut4(
+        return feat_mgr.FeatureCut4(
             True, False, False,                # Sd, Flip, Dir
-            SW_END_COND_THROUGH_ALL, 0,        # T1 (through all, into the material), T2
-            0.0, 0.0,                          # D1, D2 (ignored for through-all)
+            t1, 0,                             # T1 (end condition), T2
+            d1, 0.0,                           # D1 (depth, 0 for through-all), D2
             False, False,                      # Dchk1, Dchk2
             False, False,                      # Ddir1, Ddir2
             0.0, 0.0,                          # Dang1, Dang2
@@ -920,11 +913,58 @@ class SolidWorksSession:
             False,                             # FlipStartOffset
             False,                             # OptimizeGeometry
         )
+
+    def add_hole(self, diameter_mm: float, x_mm: float, y_mm: float,
+                 name: str = "Hole") -> dict:
+        """Cut a circular through-hole at (x, y), straight through the depth axis.
+
+        Selects the +Z face (the face parallel to add_box's width x height
+        profile) and cuts through all material to the opposite face -- i.e. a hole
+        through a plate's thickness, along the extrude direction. (x_mm, y_mm) are
+        in add_box's coordinate system, so the centre of a 40x20 profile is x=20,
+        y=10. Returns the resulting mass properties.
+        """
+        model = self._require_model()
+        if diameter_mm <= 0:
+            raise SolidWorksError(f"diameter moet > 0 zijn (kreeg {diameter_mm}).")
+        cut = self._cut_circle_on_z(model, diameter_mm, x_mm, y_mm, through=True)
         if cut is None:
             raise SolidWorksError(
                 "FeatureCut4 mislukte (None). Ligt (x, y) binnen het materiaal van het part?"
             )
         return self._finish_feature(cut, name)
+
+    def add_counterbore_hole(self, clearance_diameter_mm: float, cbore_diameter_mm: float,
+                             cbore_depth_mm: float, x_mm: float, y_mm: float,
+                             name: str = "Counterbore") -> dict:
+        """Cut a counterbored screw hole on the +Z face at (x, y).
+
+        A clearance shank cut THROUGH_ALL, plus a larger coaxial flat-bottom pocket
+        cut BLIND to cbore_depth_mm from +Z -- so a cap-head screw (or heat-set
+        insert) sits flush/recessed. Volume removed =
+        pi*r_clear^2*thickness + pi*(R_cbore^2 - r_clear^2)*cbore_depth.
+        Returns mass properties. Use after building a plate (e.g. add_box).
+        """
+        model = self._require_model()
+        if clearance_diameter_mm <= 0 or cbore_diameter_mm <= 0:
+            raise SolidWorksError("diameters moeten > 0 zijn.")
+        if cbore_diameter_mm <= clearance_diameter_mm:
+            raise SolidWorksError("cbore_diameter moet groter zijn dan clearance_diameter.")
+        if cbore_depth_mm <= 0:
+            raise SolidWorksError(f"cbore_depth moet > 0 zijn (kreeg {cbore_depth_mm}).")
+
+        # Through clearance shank first (clean +Z face), then the blind pocket: the
+        # pocket removes the annular ring around the already-cut shank.
+        shank = self._cut_circle_on_z(model, clearance_diameter_mm, x_mm, y_mm, through=True)
+        if shank is None:
+            raise SolidWorksError(
+                "Clearance-gat (FeatureCut4) mislukte (None). Ligt (x, y) binnen het materiaal?"
+            )
+        cbore = self._cut_circle_on_z(model, cbore_diameter_mm, x_mm, y_mm,
+                                      through=False, depth_mm=cbore_depth_mm)
+        if cbore is None:
+            raise SolidWorksError("Counterbore-pocket (FeatureCut4) mislukte (None).")
+        return self._finish_feature(cbore, name)
 
     # A point given to add_hole_on_face / cut_profile_on_face must LIE on the
     # chosen face. ModelToSketchTransform's out-of-plane component (local[2]) is

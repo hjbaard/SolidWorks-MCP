@@ -174,6 +174,21 @@ def test_hole_off_center_frame(part):
     assert com[0] > 20 and com[1] > 10
 
 
+def test_counterbore_hole(part):
+    # clearance Ø5 through 10 mm + Ø10 counterbore 4 mm deep, centred at (20,10).
+    # removed = pi*2.5^2*10 + pi*(5^2 - 2.5^2)*4 = 196.35 + 235.62 = 431.97
+    part.add_box(40, 20, 10)
+    removed = math.pi * 2.5 ** 2 * 10 + math.pi * (5 ** 2 - 2.5 ** 2) * 4
+    assert abs(vol(part.add_counterbore_hole(5, 10, 4, 20, 10)) - (8000 - removed)) < 0.5
+
+
+def test_counterbore_diameter_order_raises(part):
+    # counterbore diameter must exceed the clearance diameter
+    part.add_box(40, 20, 10)
+    with pytest.raises(SolidWorksError):
+        part.add_counterbore_hole(10, 5, 4, 20, 10)
+
+
 def test_hole_on_x_face(part):
     # +X face at x=40 (20x10); centre (40,10,5); hole runs through the 40 mm length
     part.add_box(40, 20, 10)
