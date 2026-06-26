@@ -30,6 +30,17 @@ get_status → new_part → add_box → measure → set_dimension → measure �
 bounding_box → export STEP (15.8 KB, valid AP203) + STL → screenshot (valid
 isometric render) → close_part. All checks pass.
 
+### M4 — free-form spline extrusion 🚧
+`add_extruded_spline(points, depth)`: a smooth CLOSED spline through the given points
+(organic/aesthetic outlines -- cams, rounded shapes), extruded like
+add_extruded_profile. Via `ISketchManager.CreateSpline2(PointData, SimulateNaturalEnds)`
+(dispid 69): PointData is a VT_ARRAY|VT_R8 VARIANT of [x,y,z,...] (same marshalling as
+CreatePoint); close the curve by repeating the first point (an OPEN spline refuses to
+extrude -- verified). Honest limitation: a spline's area is NOT analytic, so unlike
+every other feature its volume can't be hand-calc'd exactly -- verified instead by a
+24-point circle approximation converging to pi*r^2*h (n=8:-0.12%, 12:-0.03%, 24:-0.01%).
+This is where the project's "hard verifiable signal" softens for free-form geometry.
+
 ### M5 — end-to-end 3D-print part ✅
 `scripts/m5_demo_bracket.py`. Builds a functional mounting bracket through the full
 build->measure->verify loop, asserting volume vs a hand calc after EVERY step:

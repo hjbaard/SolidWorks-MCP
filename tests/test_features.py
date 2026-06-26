@@ -162,6 +162,19 @@ def test_extruded_profile_explicitly_closed(part):
     assert abs(vol(part.add_extruded_profile(pts, 10)) - 4000) < 0.1
 
 
+def test_extruded_spline_circle_approx(part):
+    # a closed spline through 24 points on a circle r=20 approximates the circle;
+    # extruded 10 mm -> volume ~= pi*r^2*h (spline area is not analytic, so loose tol)
+    pts = [[20 * math.cos(2 * math.pi * i / 24), 20 * math.sin(2 * math.pi * i / 24)]
+           for i in range(24)]
+    assert abs(vol(part.add_extruded_spline(pts, 10)) - math.pi * 400 * 10) < 30
+
+
+def test_extruded_spline_too_few_points_raises(part):
+    with pytest.raises(SolidWorksError):
+        part.add_extruded_spline([[0, 0], [10, 0]], 5)
+
+
 def test_hole(part):
     part.add_box(40, 20, 10)
     assert abs(vol(part.add_hole(8, 20, 10)) - (8000 - math.pi * 16 * 10)) < 0.1

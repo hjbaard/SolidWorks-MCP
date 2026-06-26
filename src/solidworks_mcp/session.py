@@ -551,6 +551,54 @@ class SolidWorksSession:
             raise SolidWorksError("FeatureExtrusion3 mislukte (None). Is het profiel gesloten en niet zelfsnijdend?")
         return self._finish_feature(extrude, name)
 
+    def add_extruded_spline(self, points_mm: list, depth_mm: float,
+                            name: str = "Spline") -> dict:
+        """Extrude a smooth CLOSED spline through the given points (organic shapes).
+
+        points_mm = [[x, y], ...] in mm: interpolation points the spline passes
+        through, on the first plane. The curve is closed (last -> first) and
+        extruded depth_mm along the plane normal -- like add_extruded_profile but
+        smooth/curved (cams, fillided outlines, free-form bosses). NOTE: a spline's
+        enclosed area is not analytic, so the returned volume is the measured truth,
+        not a hand-calc. Returns mass properties. Use new_part first.
+        """
+        model = self._require_model()
+        if depth_mm <= 0:
+            raise SolidWorksError(f"depth moet > 0 zijn (kreeg {depth_mm}).")
+        pts = self._clean_polygon(points_mm)  # >= 3 distinct points
+
+        plane = self._first_ref_plane()
+        if plane is None:
+            raise SolidWorksError("Geen reference plane gevonden in de feature tree.")
+        if not plane.Select2(False, 0):
+            raise SolidWorksError("Kon de reference plane niet selecteren.")
+
+        sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
+        sk.InsertSketch(True)
+        coords = []
+        for x, y in pts + [pts[0]]:  # repeat the first point to close the spline
+            coords += [mm_to_m(x), mm_to_m(y), 0.0]
+        point_data = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, coords)
+        spline = sk.CreateSpline2(point_data, False)  # SimulateNaturalEnds=False
+        model.ClearSelection2(True)
+        sk.InsertSketch(True)  # close the sketch
+        if not spline:
+            raise SolidWorksError("Spline-sketch mislukte: CreateSpline2 gaf niets terug.")
+
+        feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
+        extrude = feat_mgr.FeatureExtrusion3(
+            True, False, False,
+            SW_END_COND_BLIND, 0,
+            mm_to_m(depth_mm), 0.0,
+            False, False, False, False, 0.0, 0.0,
+            False, False, False, False,
+            True, True, True,
+            SW_START_SKETCH_PLANE, 0.0, False,
+        )
+        if extrude is None:
+            raise SolidWorksError("FeatureExtrusion3 mislukte (None). Is de spline gesloten en niet zelfsnijdend?")
+        return self._finish_feature(extrude, name)
+
     def add_disc(self, diameter_mm: float, thickness_mm: float, name: str = "Disc") -> dict:
         """Create a disc / puck / flange: a circle extruded along +Z, centred at origin.
 

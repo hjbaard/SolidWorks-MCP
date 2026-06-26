@@ -69,6 +69,18 @@ async def add_extruded_profile(points_mm: list, depth_mm: float, name: str = "Ex
 
 
 @mcp.tool()
+async def add_extruded_spline(points_mm: list, depth_mm: float, name: str = "Spline") -> dict:
+    """Extrude a smooth CLOSED spline through points: points_mm = [[x,y], ...] in mm.
+
+    Like add_extruded_profile but the outline is a smooth curve through the points
+    (free-form/organic shapes: cams, rounded outlines, aesthetic bosses), auto-closed
+    and extruded by depth_mm. A spline's area is not analytic, so the returned volume
+    is the measured value. Returns mass properties. Use new_part first.
+    """
+    return await _call(_session.add_extruded_spline, points_mm, depth_mm, name)
+
+
+@mcp.tool()
 async def add_disc(diameter_mm: float, thickness_mm: float, name: str = "Disc") -> dict:
     """Create a disc/puck/flange: a circle extruded along +Z, centred at the origin.
 
