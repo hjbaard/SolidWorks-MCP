@@ -101,6 +101,16 @@ async def add_hole(diameter_mm: float, x_mm: float, y_mm: float, name: str = "Ho
 
 
 @mcp.tool()
+async def cut_profile(points_mm: list, depth_mm: float | None = None, name: str = "Cut") -> dict:
+    """Cut a polygonal pocket/slot from the +Z face: points_mm = [[x,y], ...] in mm.
+
+    Auto-closed polygon, cut blind by depth_mm or all the way through when depth_mm
+    is omitted. For pockets, slots, cutouts. Returns mass properties.
+    """
+    return await _call(_session.cut_profile, points_mm, depth_mm, name)
+
+
+@mcp.tool()
 async def add_fillet(radius_mm: float, edges: str = "all", name: str = "Fillet") -> dict:
     """Round edges of the current part with one constant radius (mm).
 

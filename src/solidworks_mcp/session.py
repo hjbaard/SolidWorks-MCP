@@ -527,6 +527,54 @@ class SolidWorksSession:
             )
         return self._finish_feature(cut, name)
 
+    def cut_profile(self, points_mm: list, depth_mm: float | None = None,
+                    name: str = "Cut") -> dict:
+        """Cut a polygonal pocket/slot from the +Z face, blind or through.
+
+        points_mm is a list of [x, y] vertices (mm) in add_box coordinates. The
+        polygon is auto-closed and cut into the part: blind by depth_mm, or all
+        the way through when depth_mm is None. Returns mass properties.
+        """
+        model = self._require_model()
+        if not points_mm or len(points_mm) < 3:
+            raise SolidWorksError("Een profiel heeft minstens 3 punten nodig.")
+
+        body = self._solid_body()
+        face = self._planar_face_by_normal(body, (0.0, 0.0, 1.0))
+        if face is None:
+            raise SolidWorksError("Geen +Z-vlak gevonden om in te frezen.")
+        model.ClearSelection2(True)
+        if not binding.wrap(face, self._mod.IEntity).Select4(False, None):
+            raise SolidWorksError("Kon het +Z-vlak niet selecteren.")
+
+        sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
+        sk.InsertSketch(True)
+        count = len(points_mm)
+        for i in range(count):
+            x1, y1 = points_mm[i]
+            x2, y2 = points_mm[(i + 1) % count]
+            sk.CreateLine(mm_to_m(x1), mm_to_m(y1), 0.0, mm_to_m(x2), mm_to_m(y2), 0.0)
+        sk.InsertSketch(True)  # close the sketch
+
+        if depth_mm is None:
+            t1, d1 = SW_END_COND_THROUGH_ALL, 0.0
+        else:
+            if depth_mm <= 0:
+                raise SolidWorksError(f"depth moet > 0 zijn (kreeg {depth_mm}).")
+            t1, d1 = SW_END_COND_BLIND, mm_to_m(depth_mm)
+
+        feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
+        cut = feat_mgr.FeatureCut4(
+            True, False, False, t1, 0, d1, 0.0,
+            False, False, False, False, 0.0, 0.0,
+            False, False, False, False, False,
+            True, True, False, False, False,
+            SW_START_SKETCH_PLANE, 0.0, False, False,
+        )
+        if cut is None:
+            raise SolidWorksError("FeatureCut4 mislukte (None). Ligt het profiel op het +Z-vlak?")
+        return self._finish_feature(cut, name)
+
     def add_fillet(self, radius_mm: float, edges: str = "all", name: str = "Fillet") -> dict:
         """Round edges of the part's solid body with one constant radius.
 
