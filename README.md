@@ -8,14 +8,14 @@ The point isn't just "make geometry". Parametric CAD gives *hard, verifiable
 signals* (rebuild status, mass properties, measurements, bounding box), which
 makes an agentic correction loop realistic instead of "it looks about right".
 
-> ⚠️ **Early first draft (v0.1).** This is an initial, experimental release. It
+> ⚠️ **Early draft (v0.2).** This is still an experimental release. It
 > works end-to-end on the author's setup (SOLIDWORKS 2026 / 3DEXPERIENCE R2026x),
 > and every feature is verified against a hand calculation — but the tool surface
 > and conventions may still change, and it has only been tested against one
 > SolidWorks build. Use it as a starting point, not a finished product. Feedback
 > and contributions are welcome. See [CHANGELOG.md](CHANGELOG.md).
 
-## Status (v0.1)
+## Status (v0.2)
 
 Proven end-to-end against **SOLIDWORKS 2026 (3DEXPERIENCE R2026x)**:
 

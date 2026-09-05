@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0] — 2026-09-05
 
 ### Added
 - **Assemblies (M6)**: `new_assembly`, `open_assembly`, `save_assembly`,
