@@ -7,8 +7,9 @@ swDefaultTemplatePart == 8 on this build (not 9, as often stated online): always
 trust the installed library over web docs.
 """
 
-# swDocumentTypes_e (for OpenDoc6)
+# swDocumentTypes_e (for OpenDoc6 / IModelDoc2.GetType)
 SW_DOC_PART = 1
+SW_DOC_ASSEMBLY = 2
 
 # swEndConditions_e
 SW_END_COND_BLIND = 0
@@ -53,9 +54,42 @@ SW_START_SKETCH_PLANE = 0
 
 # swUserPreferenceStringValue_e
 SW_PREF_DEFAULT_TEMPLATE_PART = 8
+SW_PREF_DEFAULT_TEMPLATE_ASSEMBLY = 9
+
+# --- assemblies ---------------------------------------------------------------
+
+# swAddComponentConfigOptions_e -- insert the component using the configuration
+# that is currently selected in the part.
+SW_ADD_COMPONENT_CURRENT_CONFIG = 0
+
+# swMateType_e. Only the types that make sense between two PLANAR faces are
+# exposed; concentric/tangent need a cylindrical selection, which the planar
+# face selector cannot produce.
+MATE_TYPES = {
+    "coincident": 0,     # swMateCOINCIDENT
+    "perpendicular": 2,  # swMatePERPENDICULAR
+    "parallel": 3,       # swMatePARALLEL
+    "distance": 5,       # swMateDISTANCE
+}
+
+# swMateAlign_e -- CLOSEST lets SolidWorks keep the solution nearest the current
+# position, which is what we want because every component is pre-positioned
+# before it is mated.
+SW_MATE_ALIGN_CLOSEST = 2
+
+# swAddMateError_e -- note NoError is 1, not 0.
+SW_ADD_MATE_NO_ERROR = 1
+
+# swBoundingBoxOptions_e bitmask for IAssemblyDoc.GetBox: 0 = solid geometry
+# only (1 would add reference planes, 2 sketches, which would inflate the box).
+SW_BOUNDING_BOX_SOLID_ONLY = 0
 
 # swUserPreferenceToggle_e
 SW_TOGGLE_INPUT_DIM_VAL_ON_CREATE = 10
+
+# swOpenDocOptions_e -- silent load, no dialogs. AddComponent5 returns None for a
+# part that is not loaded yet (verified), so components are opened this way first.
+SW_OPEN_DOC_SILENT = 1
 
 # swSaveAsVersion_e
 SW_SAVE_AS_CURRENT_VERSION = 0

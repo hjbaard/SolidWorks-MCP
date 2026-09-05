@@ -363,7 +363,7 @@ async def list_edges() -> dict:
 @mcp.tool()
 async def export(path: str, file_format: str | None = None, quality: str = "fine",
                  deviation_mm: float | None = None, angle_deg: float | None = None) -> dict:
-    """Export the current part to STEP/STL/IGES/Parasolid/3MF (format inferred from extension).
+    """Export the current part or assembly to STEP/STL/IGES/Parasolid/3MF (format from extension).
 
     Silent (no prompts). Verifies the file appears on disk and reports its size.
     For STL/3MF, tessellation resolution is set first: quality 'coarse'|'fine'
@@ -375,13 +375,13 @@ async def export(path: str, file_format: str | None = None, quality: str = "fine
 
 @mcp.tool()
 async def screenshot(path: str) -> dict:
-    """Save an isometric, zoom-to-fit screenshot of the current part (PNG/BMP/JPG)."""
+    """Save an isometric, zoom-to-fit screenshot of the current part or assembly (PNG/BMP/JPG)."""
     return await _call(_session.screenshot, path)
 
 
 @mcp.tool()
 async def close_part(save: bool = False) -> dict:
-    """Close the current part without saving (export first if you need the geometry)."""
+    """Close the current part or assembly without saving (export/save first if needed)."""
     return await _call(_session.close_part, save)
 
 
@@ -395,6 +395,104 @@ async def save_part(path: str) -> dict:
 async def open_part(path: str) -> dict:
     """Open an existing .sldprt file; it becomes the current part."""
     return await _call(_session.open_part, path)
+
+
+# --- assemblies ---------------------------------------------------------------
+
+
+@mcp.tool()
+async def new_assembly() -> dict:
+    """Create a new empty assembly document; it becomes the current document.
+
+    Assemblies compose saved parts: insert_component places each part, add_mate
+    constrains them, check_interference proves nothing overlaps.
+    """
+    return await _call(_session.new_assembly)
+
+
+@mcp.tool()
+async def open_assembly(path: str) -> dict:
+    """Open an existing .sldasm file; it becomes the current document."""
+    return await _call(_session.open_assembly, path)
+
+
+@mcp.tool()
+async def save_assembly(path: str) -> dict:
+    """Save the current assembly to a native .sldasm file (so it can be reopened)."""
+    return await _call(_session.save_assembly, path)
+
+
+@mcp.tool()
+async def insert_component(path: str, x_mm: float = 0.0, y_mm: float = 0.0,
+                           z_mm: float = 0.0, fixed: bool | None = None) -> dict:
+    """Insert a .sldprt into the current assembly with its ORIGIN at (x, y, z) mm.
+
+    The part's own origin lands exactly on that point, and the placement is read
+    back and verified. fixed=True pins the component; fixed=False leaves it free
+    for mates. The default fixes only the FIRST component, giving the assembly a
+    ground to build against. Returns the component's name, placement and box.
+    """
+    return await _call(_session.insert_component, path, x_mm, y_mm, z_mm, fixed)
+
+
+@mcp.tool()
+async def list_components() -> dict:
+    """List the assembly's components: name, path, fixed, position, rotation, bounding box.
+
+    Positions are in mm and rotations in degrees, both in assembly coordinates;
+    the bounding box of each component is in assembly coordinates too.
+    """
+    return await _call(_session.list_components)
+
+
+@mcp.tool()
+async def set_component_transform(name: str, x_mm: float, y_mm: float, z_mm: float,
+                                  rx_deg: float = 0.0, ry_deg: float = 0.0,
+                                  rz_deg: float = 0.0) -> dict:
+    """Move/rotate a component: its origin to (x, y, z) mm, rotated rx/ry/rz degrees.
+
+    name is the component name ('Bed' or 'Bed-1'); rotations apply X, then Y,
+    then Z about the assembly axes, and work on a fixed component too. The
+    transform is read back and compared, so a move SolidWorks ignored (e.g. one
+    already pinned by mates) fails loudly instead of silently leaving the part
+    where it was.
+    """
+    return await _call(_session.set_component_transform, name, x_mm, y_mm, z_mm,
+                       rx_deg, ry_deg, rz_deg)
+
+
+@mcp.tool()
+async def add_mate(comp_a: str, face_a: str, comp_b: str, face_b: str,
+                   mate_type: str = "coincident", distance_mm: float = 0.0,
+                   flip: bool = False) -> dict:
+    """Mate a planar face of one component to a planar face of another.
+
+    comp_a/comp_b are component names ('Bed' or 'Bed-1'). face_a/face_b select a
+    planar face by direction in that component's OWN frame: "+x"/"-x"/"+y"/...,
+    optionally "+y:inner" for the cavity side of a hollow part (the inside of a
+    room wall instead of its outer skin). mate_type: "coincident", "distance"
+    (uses distance_mm), "parallel" or "perpendicular". flip swaps the solution
+    if SolidWorks lands on the mirror side. The result is measured back from the
+    geometry after the rebuild and rejected if it is not what was asked.
+    """
+    return await _call(_session.add_mate, comp_a, face_a, comp_b, face_b,
+                       mate_type, distance_mm, flip)
+
+
+@mcp.tool()
+async def check_interference() -> dict:
+    """Report component pairs whose solids overlap, with the volume in mm^3.
+
+    Touching faces do not count (a bed standing on the floor is fine); only real
+    overlapping material does. count == 0 means the assembly is clash-free.
+    """
+    return await _call(_session.check_interference)
+
+
+@mcp.tool()
+async def get_assembly_bounding_box() -> dict:
+    """Get the bounding box of the whole assembly (min/max/size in mm)."""
+    return await _call(_session.get_assembly_bounding_box)
 
 
 def main() -> None:

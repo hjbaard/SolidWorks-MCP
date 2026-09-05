@@ -27,6 +27,7 @@ Proven end-to-end against **SOLIDWORKS 2026 (3DEXPERIENCE R2026x)**:
 | M3 | full agent loop via the MCP server: build → measure → correct → export STEP/STL + screenshot | ✅ |
 | M4 | revolve, sweep, loft, profiles, holes/pockets/counterbores, slots, fillet/chamfer, shell, patterns, equations, materials, save/open | 🚧 ongoing |
 | M5 | end-to-end 3D-print part: build a functional mounting bracket through the full loop → verify every dimension → export a fine STL ([scripts/m5_demo_bracket.py](scripts/m5_demo_bracket.py)) | ✅ |
+| M6 | assemblies: insert and position components, mate them, check interference — a furnished room assembled and proven clash-free ([scripts/m6_demo_kamer.py](scripts/m6_demo_kamer.py)) | ✅ |
 
 See [Docs/PROGRESS.md](Docs/PROGRESS.md) for the detailed log and roadmap.
 
@@ -85,7 +86,11 @@ With SolidWorks open:
 .\.venv\Scripts\python.exe scripts\m2_parametric.py        # M2
 .\.venv\Scripts\python.exe scripts\test_mcp_server.py      # M3 (full MCP loop over stdio)
 .\.venv\Scripts\python.exe scripts\m5_demo_bracket.py      # M5 (3D-print bracket, every step verified)
+.\.venv\Scripts\python.exe scripts\m6_demo_kamer.py        # M6 (furnished room assembly, clash-free)
 ```
+
+`scripts/m6_demo_kamer.py` needs the three sample parts in `D:\Ontwikkeling\Kamer Yara`;
+edit `PARTS_DIR` at the top to point at your own parts.
 
 `scripts/introspect_api.py` regenerates/inspects the installed typelib and prints
 verified enum values — run it if SolidWorks is upgraded and signatures change.
@@ -98,9 +103,11 @@ verified enum values — run it if SolidWorks is upgraded and signatures change.
 ```
 
 Two layers: **pure unit tests** (units, selector/direction parsing, polygon
-cleaning) run anywhere; **integration tests** (`solidworks` marker) drive a
-running SolidWorks and verify each feature's volume against a hand calc — they
-auto-skip if SolidWorks isn't reachable. `pip install -e .[dev]` for pytest.
+cleaning, the component-placement maths, and that every MCP tool forwards its
+arguments to the right session method) run anywhere; **integration tests**
+(`solidworks` marker) drive a running SolidWorks and verify each feature's
+volume — or each component's placement — against a hand calc. They auto-skip if
+SolidWorks isn't reachable. `pip install -e .[dev]` for pytest.
 
 ## Use as an MCP server
 
@@ -155,7 +162,27 @@ Desktop / Claude Code) using the venv's Python:
 | `export(path, file_format, quality, deviation_mm, angle_deg)` | STEP/STL/IGES/Parasolid/3MF (silent; verifies file). STL/3MF tessellation: `quality` `coarse`/`fine`, or explicit `deviation_mm`+`angle_deg` |
 | `screenshot(path)` | Isometric, zoom-to-fit PNG/BMP/JPG |
 | `save_part(path)` / `open_part(path)` | Save to / open a native `.sldprt` |
-| `close_part(save)` | Close the current part |
+| `close_part(save)` | Close the current part or assembly |
+
+### Assembly tools
+
+| Tool | Purpose |
+|---|---|
+| `new_assembly` | Create a new empty assembly (becomes the current document) |
+| `open_assembly(path)` / `save_assembly(path)` | Open / save a native `.sldasm` |
+| `insert_component(path, x_mm, y_mm, z_mm, fixed)` | Insert a part with its **origin** at (x, y, z); the first component is fixed by default |
+| `list_components` | Name, path, fixed, position, rotation and bounding box of every component |
+| `set_component_transform(name, x_mm, y_mm, z_mm, rx_deg, ry_deg, rz_deg)` | Move/rotate a component; the transform is read back and verified |
+| `add_mate(comp_a, face_a, comp_b, face_b, mate_type, distance_mm, flip)` | Mate two planar faces: `coincident`, `distance`, `parallel`, `perpendicular` — measured back from the geometry afterwards |
+| `check_interference` | Component pairs whose solids overlap, with the volume in mm³ (touching faces don't count) |
+| `get_assembly_bounding_box` | Bounding box of the whole assembly (min/max/size, mm) |
+
+`export` and `screenshot` work on assemblies too.
+
+Faces are selected by direction in the component's **own** frame (`+x`, `-z`, …),
+so a selector keeps meaning the same face however the component is turned. Add
+`:inner` (e.g. `+y:inner`) for the cavity side of a hollow part — the inside of a
+room wall instead of its outer skin.
 
 All linear dimensions are **millimetres**; the server converts to/from the
 SolidWorks-internal metre/radian units at the boundary.
@@ -205,8 +232,9 @@ Two non-obvious design decisions, both load-bearing:
   rails, gaskets, trim). Mirror is shelved — both routes fail
   on this build; an AI mirrors by placing features symmetrically.
 - Selection: plane walk, face-by-normal/direction (`_planar_face_by_normal`,
-  `+z`/…), and edge selection by axis **or explicit index** (`_select_edges`).
-  `list_faces`/`list_edges` let an agent inspect geometry before selecting;
-  choosing the hole face (beyond +Z) is still open.
-- Assemblies, interference detection, drawings and Simulation (FEA) are out of
-  scope for v0 (M5).
+  `+z`/…, with `:inner` for the cavity side of a hollow part), and edge selection
+  by axis **or explicit index** (`_select_edges`). `list_faces`/`list_edges` let
+  an agent inspect geometry before selecting.
+- Assemblies (M6): components, transforms, mates and interference detection.
+  Component patterns, in-context features, configurations, drawings and
+  Simulation (FEA) are out of scope.

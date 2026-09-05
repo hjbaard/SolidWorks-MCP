@@ -18,13 +18,21 @@ import win32com.client
 from . import binding
 from .constants import (
     EXPORT_FORMATS,
+    MATE_TYPES,
+    SW_ADD_COMPONENT_CURRENT_CONFIG,
+    SW_ADD_MATE_NO_ERROR,
     SW_BODY_SOLID,
+    SW_BOUNDING_BOX_SOLID_ONLY,
     SW_CHAMFER_ANGLE_DISTANCE,
+    SW_DOC_ASSEMBLY,
     SW_DOC_PART,
     SW_END_COND_BLIND,
     SW_END_COND_THROUGH_ALL,
     SW_FILLET_OPT_UNIFORM_RADIUS,
     SW_FILLET_TYPE_SIMPLE,
+    SW_MATE_ALIGN_CLOSEST,
+    SW_OPEN_DOC_SILENT,
+    SW_PREF_DEFAULT_TEMPLATE_ASSEMBLY,
     SW_PREF_DEFAULT_TEMPLATE_PART,
     SW_REF_PLANE_DISTANCE,
     SW_SAVE_AS_CURRENT_VERSION,
@@ -84,8 +92,33 @@ class SolidWorksSession:
 
     def _require_model(self):
         if self._model is None:
-            raise SolidWorksError("Geen actief part. Roep eerst 'new_part' aan.")
+            raise SolidWorksError("Geen actief document. Roep eerst 'new_part' of 'new_assembly' aan.")
         return self._model
+
+    def _require_part(self):
+        """The current document as an IPartDoc; raises if it is an assembly.
+
+        Part tools would otherwise sketch into an assembly and fail much later
+        with an opaque message, so the doc type is checked at the choke points
+        every part builder passes through (_first_ref_plane / _solid_body).
+        """
+        model = self._require_model()
+        if int(model.GetType()) != SW_DOC_PART:
+            raise SolidWorksError(
+                f"Het huidige document '{model.GetTitle()}' is geen part maar een assembly. "
+                "Roep 'new_part' of 'open_part' aan, of gebruik de assembly-tools."
+            )
+        return binding.wrap(model, self._mod.IPartDoc)
+
+    def _require_assembly(self):
+        """The current document as an IAssemblyDoc; raises if it is a part."""
+        model = self._require_model()
+        if int(model.GetType()) != SW_DOC_ASSEMBLY:
+            raise SolidWorksError(
+                f"Het huidige document '{model.GetTitle()}' is geen assembly. "
+                "Roep eerst 'new_assembly' of 'open_assembly' aan."
+            )
+        return binding.wrap(model, self._mod.IAssemblyDoc)
 
     # --- status ---------------------------------------------------------------
 
@@ -119,7 +152,7 @@ class SolidWorksSession:
         return {"ok": True, "title": model.GetTitle()}
 
     def close_part(self, save: bool = False) -> dict:
-        """Close the current part. CloseDoc never prompts; save is not implemented yet."""
+        """Close the current document (part or assembly). CloseDoc never prompts."""
         model = self._require_model()
         if save:
             raise SolidWorksError("Opslaan bij sluiten is nog niet ondersteund; gebruik 'export'.")
@@ -174,6 +207,7 @@ class SolidWorksSession:
         Avoids SelectByID2('Front Plane', ...), which breaks on non-English
         installs. In a fresh part the first RefPlane is the Front plane.
         """
+        self._require_part()
         feat = binding.wrap(self._model.FirstFeature(), self._mod.IFeature)
         while feat is not None:
             try:
@@ -186,7 +220,7 @@ class SolidWorksSession:
 
     def _solid_body(self):
         """The first solid body of the current part (early-bound IBody2)."""
-        part = binding.wrap(self._model, self._mod.IPartDoc)
+        part = self._require_part()
         bodies = part.GetBodies2(SW_BODY_SOLID, True)
         if not bodies:
             raise SolidWorksError("Geen solid body; bouw eerst geometrie (bv. add_box).")
@@ -194,33 +228,48 @@ class SolidWorksSession:
             bodies = [bodies]
         return binding.wrap(bodies[0], self._mod.IBody2)
 
-    def _planar_face_by_normal(self, body, target):
-        """Return the PLANAR face whose outward normal best matches `target`.
+    # A face's normal alone does not identify it: a shelled/walled part has SEVERAL
+    # planar faces with the same outward normal (e.g. for +Z the outer top face and
+    # the inner floor of the opposite wall). They are told apart by WHERE they sit
+    # along that normal, so every face lookup picks an extreme: 'outer' = furthest
+    # along the direction (the part's outside skin), 'inner' = least far (the
+    # cavity side). Picking whichever face the API happened to list first -- what
+    # this used to do -- silently returned the wrong one on any hollow part.
+    _FACE_SIDES = ("outer", "inner")
 
-        The reusable selection primitive: e.g. target (0,0,1) is the top face.
+    def _pick_planar_face(self, faces, target, side: str):
+        """Extreme PLANAR face along `target`: 'outer' = max, 'inner' = min position.
+
         Non-planar faces (a cylinder left by a hole, a fillet surface) are skipped
-        so the result is always a valid sketch base. Returns the early-bound
-        IFace2 facing closest to `target`, or None if no planar face faces it.
+        so the result is always a valid sketch base. Returns (IFace2, position_mm
+        along `target`) or (None, None) if no planar face faces that way.
         """
-        faces = body.GetFaces()
-        if not faces:
-            return None
-        if not isinstance(faces, (list, tuple)):
-            faces = [faces]
+        if side not in self._FACE_SIDES:
+            raise SolidWorksError(f"Onbekende vlakzijde '{side}'. Gebruik 'outer' of 'inner'.")
         tx, ty, tz = target
-        best = None
-        best_dot = 0.999  # floor: must face essentially toward `target`; closest wins
+        best, best_pos = None, None
         for face_dispatch in faces:
             face = binding.wrap(face_dispatch, self._mod.IFace2)
             surface = binding.wrap(face.GetSurface(), self._mod.ISurface)
             if surface is None or not surface.IsPlane():
                 continue  # only sketch on flat faces
             nx, ny, nz = face.Normal
-            dot = nx * tx + ny * ty + nz * tz
-            if dot > best_dot:
-                best_dot = dot
-                best = face
-        return best
+            if nx * tx + ny * ty + nz * tz < 0.999:  # ~2.6 degrees
+                continue
+            box = face.GetBox()  # planar face -> its box centre lies in the plane
+            pos = sum((box[i] + box[i + 3]) / 2.0 * target[i] for i in range(3))
+            if best is None or (pos > best_pos if side == "outer" else pos < best_pos):
+                best, best_pos = face, pos
+        return best, (None if best_pos is None else m_to_mm(best_pos))
+
+    def _planar_face_by_normal(self, body, target, side: str = "outer"):
+        """The body's outermost (default) or innermost planar face facing `target`."""
+        faces = body.GetFaces()
+        if not faces:
+            return None
+        if not isinstance(faces, (list, tuple)):
+            faces = [faces]
+        return self._pick_planar_face(faces, target, side)[0]
 
     _DIRECTIONS = {
         "+x": (1.0, 0.0, 0.0), "-x": (-1.0, 0.0, 0.0),
@@ -234,6 +283,22 @@ class SolidWorksSession:
         if key not in self._DIRECTIONS:
             raise SolidWorksError(f"Onbekende richting '{token}'. Gebruik +x/-x/+y/-y/+z/-z.")
         return self._DIRECTIONS[key]
+
+    def _parse_face_selector(self, token: str):
+        """'+z' or '+z:inner' -> ((0,0,1), 'outer'|'inner'); pure, unit-tested.
+
+        The optional ':inner' suffix asks for the cavity-side face instead of the
+        outside skin -- the only way to address the inner wall of a hollow part
+        (a shelled box, a room), where several faces share the same normal.
+        """
+        text = (token or "").lower().strip()
+        direction, _, side = text.partition(":")
+        side = side.strip() or "outer"
+        if side not in self._FACE_SIDES:
+            raise SolidWorksError(
+                f"Onbekende vlakzijde ':{side}' in '{token}'. Gebruik ':outer' (standaard) of ':inner'."
+            )
+        return self._parse_direction(direction), side
 
     def _edge_parallel_to(self, edge_dispatch, target) -> bool:
         """True if a STRAIGHT edge runs parallel to unit vector `target`.
@@ -502,9 +567,25 @@ class SolidWorksSession:
         self._model.ClearSelection2(True)
         sk.InsertSketch(True)  # close the sketch
 
-    def _select_planar_face(self, body, normal, label: str):
-        """Select the planar face whose outward normal matches `normal`; raise if none."""
-        face = self._planar_face_by_normal(body, normal)
+    def _open_face_sketch(self, sk, face: str):
+        """Open a sketch on the already-selected face and return it (never None).
+
+        Callers must close it in a `finally`: a sketch left open after a rejected
+        point makes the NEXT InsertSketch close it instead of opening a new one,
+        so one loud failure would break the following operation too.
+        """
+        sk.InsertSketch(True)
+        sketch = binding.wrap(sk.ActiveSketch, self._mod.ISketch)
+        if sketch is None:
+            raise SolidWorksError(
+                f"Kon geen sketch openen op het {face}-vlak (InsertSketch gaf geen actieve sketch). "
+                "Stond er nog een sketch open van een eerdere mislukte bewerking?"
+            )
+        return sketch
+
+    def _select_planar_face(self, body, normal, label: str, side: str = "outer"):
+        """Select the outermost (default) or innermost planar face facing `normal`."""
+        face = self._planar_face_by_normal(body, normal, side)
         if face is None:
             raise SolidWorksError(f"Geen planair {label}-vlak gevonden.")
         self._model.ClearSelection2(True)
@@ -1156,7 +1237,8 @@ class SolidWorksSession:
         """Drill a through-hole on any planar face, centred at 3D point (x, y, z).
 
         face is a direction '+x'/'-x'/'+y'/'-y'/'+z'/'-z' selecting the planar
-        face; (x_mm, y_mm, z_mm) is the hole centre in global (add_box) coordinates
+        face -- add ':inner' (e.g. '+z:inner') for the cavity-side face of a
+        hollow part; (x_mm, y_mm, z_mm) is the hole centre in global coordinates
         and must lie on that face. The hole runs through all material along the
         face normal. (add_hole is the +Z 2D convenience version of this.)
         """
@@ -1165,13 +1247,16 @@ class SolidWorksSession:
             raise SolidWorksError(f"diameter moet > 0 zijn (kreeg {diameter_mm}).")
 
         body = self._solid_body()
-        self._select_planar_face(body, self._parse_direction(face), face)
+        normal, side = self._parse_face_selector(face)
+        self._select_planar_face(body, normal, face, side)
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
-        sk.InsertSketch(True)
-        sketch = binding.wrap(sk.ActiveSketch, self._mod.ISketch)
-        u, v = self._model_to_sketch_uv(sketch, mm_to_m(x_mm), mm_to_m(y_mm), mm_to_m(z_mm), face)
-        circle = sk.CreateCircleByRadius(u, v, 0.0, mm_to_m(diameter_mm / 2.0))
-        sk.InsertSketch(True)
+        sketch = self._open_face_sketch(sk, face)
+        try:
+            u, v = self._model_to_sketch_uv(sketch, mm_to_m(x_mm), mm_to_m(y_mm),
+                                            mm_to_m(z_mm), face)
+            circle = sk.CreateCircleByRadius(u, v, 0.0, mm_to_m(diameter_mm / 2.0))
+        finally:
+            sk.InsertSketch(True)  # close the sketch, also when the point is rejected
         if not circle:
             raise SolidWorksError("Cirkel-sketch mislukte: CreateCircleByRadius gaf niets terug.")
 
@@ -1238,15 +1323,18 @@ class SolidWorksSession:
             raise SolidWorksError("Geen profielpunten opgegeven.")
 
         body = self._solid_body()
-        self._select_planar_face(body, self._parse_direction(face), face)
+        normal, side = self._parse_face_selector(face)
+        self._select_planar_face(body, normal, face, side)
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
-        sk.InsertSketch(True)
-        sketch = binding.wrap(sk.ActiveSketch, self._mod.ISketch)
-        uv_m = [self._model_to_sketch_uv(sketch, mm_to_m(p[0]), mm_to_m(p[1]), mm_to_m(p[2]), face)
-                for p in points_mm]
-        self._draw_polygon_segments(sk, self._clean_polygon(uv_m))
-        model.ClearSelection2(True)
-        sk.InsertSketch(True)
+        sketch = self._open_face_sketch(sk, face)
+        try:
+            uv_m = [self._model_to_sketch_uv(sketch, mm_to_m(p[0]), mm_to_m(p[1]),
+                                             mm_to_m(p[2]), face)
+                    for p in points_mm]
+            self._draw_polygon_segments(sk, self._clean_polygon(uv_m))
+            model.ClearSelection2(True)
+        finally:
+            sk.InsertSketch(True)  # close the sketch, also when a point is rejected
 
         if depth_mm is None:
             t1, d1 = SW_END_COND_THROUGH_ALL, 0.0
@@ -1403,7 +1491,8 @@ class SolidWorksSession:
         if opened == "none":
             model.ClearSelection2(True)
         else:
-            self._select_planar_face(body, self._parse_direction(opened), opened)
+            normal, side = self._parse_face_selector(opened)
+            self._select_planar_face(body, normal, opened, side)
 
         # Outward=False: the wall grows inward, so the outer size is unchanged.
         model.InsertFeatureShell(mm_to_m(thickness_mm), False)
@@ -1476,6 +1565,7 @@ class SolidWorksSession:
 
     def _ref_planes(self) -> list:
         """All reference planes in tree order (fresh part: [Front, Top, Right, ...])."""
+        self._require_part()
         planes = []
         for feat in self._iter_features():
             try:
@@ -1695,7 +1785,7 @@ class SolidWorksSession:
         '' for the default databases. Returns mass properties (with density).
         """
         model = self._require_model()
-        part = binding.wrap(model, self._mod.IPartDoc)
+        part = self._require_part()
         part.SetMaterialPropertyName2("", database, name)
         rebuilt_ok = bool(model.ForceRebuild3(False))
         # Verify by reading the applied name back (robust to re-assignment and to
@@ -1746,13 +1836,21 @@ class SolidWorksSession:
         return {"ok": True, "mass_properties": props}
 
     def _bounding_box(self):
-        # Tight part box via IPartDoc.GetPartBox(NoConversion=True). IModelDoc2
-        # has no GetBox; that lives on IAssemblyDoc/IComponent/IFace. We QI the
-        # model to IPartDoc. True = no unit conversion -> system units (metres).
+        # IModelDoc2 has no GetBox, so the call depends on the document type: a
+        # part measures via IPartDoc.GetPartBox(NoConversion=True), an assembly
+        # via IAssemblyDoc.GetBox. Both return system units (metres).
         # Best-effort: a bbox failure must not break the core measurement.
+        model = self._require_model()
         try:
-            part = binding.wrap(self._model, self._mod.IPartDoc)
-            box = part.GetPartBox(True)
+            if int(model.GetType()) == SW_DOC_ASSEMBLY:
+                assembly = binding.wrap(model, self._mod.IAssemblyDoc)
+                # IAssemblyDoc.GetBox is STALE until the assembly is rebuilt: after
+                # moving a component it still reports the previous extents
+                # (verified). Rebuild first rather than hand back an old number.
+                assembly.EditRebuild()
+                box = assembly.GetBox(SW_BOUNDING_BOX_SOLID_ONLY)
+            else:
+                box = binding.wrap(model, self._mod.IPartDoc).GetPartBox(True)
         except pythoncom.com_error:
             return None
         if not box or len(box) < 6:
@@ -1926,3 +2024,499 @@ class SolidWorksSession:
             pass
         model.ViewZoomtofit2()
         return self.export(path, ext)
+
+    # --- assemblies -----------------------------------------------------------
+    #
+    # Everything below drives an ASSEMBLY document (M6). Three API facts were
+    # cracked empirically against this build and the code depends on all three:
+    #
+    # 1. AddComponent5 returns None unless the part is already LOADED, so each
+    #    component is opened silently first and the assembly re-activated.
+    # 2. AddComponent5's X/Y/Z do NOT place the part's origin: it drops the
+    #    component with its bounding-box CENTRE at that point. Positioning
+    #    therefore always goes through the component transform, which is written
+    #    and then read back and compared.
+    # 3. IMathTransform.ArrayData holds the rotation COLUMN-major (data[0:3] is
+    #    the first column, not the first row) -- the transpose of the obvious
+    #    reading, verified by rotating a component 90 deg and checking its box.
+    #
+    # A component's own faces come back in COMPONENT-local coordinates even when
+    # the component is rotated, so a face selector like '-x' always means "the
+    # part's own -X face", independent of how it is turned in the assembly.
+
+    def new_assembly(self) -> dict:
+        """Create a new empty assembly; it becomes the current document."""
+        sw = self._ensure()
+        template = sw.GetUserPreferenceStringValue(SW_PREF_DEFAULT_TEMPLATE_ASSEMBLY)
+        model = None
+        if template and os.path.isfile(template):
+            model = binding.wrap(sw.NewDocument(template, 0, 0, 0), self._mod.IModelDoc2)
+        if model is None:
+            # Fallback avoids a "template not found" modal dialog, as new_part does.
+            model = binding.wrap(sw.NewAssembly(), self._mod.IModelDoc2)
+        if model is None:
+            raise SolidWorksError(
+                "Kon geen nieuwe assembly maken (template + NewAssembly faalden)."
+            )
+        self._model = model
+        return {"ok": True, "title": model.GetTitle()}
+
+    def open_assembly(self, path: str) -> dict:
+        """Open an existing .sldasm; it becomes the current document."""
+        sw = self._ensure()
+        abs_path = os.path.abspath(path)
+        if not os.path.isfile(abs_path):
+            raise SolidWorksError(f"Bestand niet gevonden: {abs_path}")
+        result = sw.OpenDoc6(abs_path, SW_DOC_ASSEMBLY, SW_OPEN_DOC_SILENT, "", 0, 0)
+        doc = result[0] if isinstance(result, tuple) else result
+        model = binding.wrap(doc, self._mod.IModelDoc2)
+        if model is None:
+            raise SolidWorksError(f"Kon de assembly niet openen: {abs_path}")
+        self._model = model
+        return {"ok": True, "title": model.GetTitle(), "path": abs_path}
+
+    def save_assembly(self, path: str) -> dict:
+        """Save the current assembly to a native .sldasm file (silent)."""
+        self._require_assembly()
+        abs_path = os.path.abspath(path)
+        if not abs_path.lower().endswith(".sldasm"):
+            abs_path += ".sldasm"
+        self._write_via_saveas3(abs_path)
+        return {"ok": True, "path": abs_path, "bytes": os.path.getsize(abs_path)}
+
+    # --- component placement (pure maths, unit-tested) ------------------------
+
+    @staticmethod
+    def _rotation_columns(rx_deg: float, ry_deg: float, rz_deg: float) -> list:
+        """R = Rz*Ry*Rx as SolidWorks' COLUMN-major 9-float array; pure (no COM).
+
+        Rotations are applied X first, then Y, then Z, about the assembly axes,
+        and act on the component's own origin (p_assembly = R * p_part + t).
+        """
+        a, b, c = deg_to_rad(rx_deg), deg_to_rad(ry_deg), deg_to_rad(rz_deg)
+        ca, sa = math.cos(a), math.sin(a)
+        cb, sb = math.cos(b), math.sin(b)
+        cc, sc = math.cos(c), math.sin(c)
+        rows = [
+            [cc * cb, cc * sb * sa - sc * ca, cc * sb * ca + sc * sa],
+            [sc * cb, sc * sb * sa + cc * ca, sc * sb * ca - cc * sa],
+            [-sb, cb * sa, cb * ca],
+        ]
+        return [rows[row][col] for col in range(3) for row in range(3)]
+
+    @staticmethod
+    def _euler_from_columns(columns) -> tuple:
+        """Inverse of _rotation_columns -> (rx, ry, rz) in degrees; pure (no COM).
+
+        At ry = +/-90 degrees the X and Z rotations become the same motion
+        (gimbal lock); there we report rz = 0 and fold the whole rotation into
+        rx, which still reproduces the matrix.
+        """
+        r = [[columns[col * 3 + row] for col in range(3)] for row in range(3)]
+        ry = math.asin(max(-1.0, min(1.0, -r[2][0])))
+        if abs(r[2][0]) > 1.0 - 1e-9:  # cos(ry) ~ 0: gimbal lock
+            rx, rz = math.atan2(-r[1][2], r[1][1]), 0.0
+        else:
+            rx, rz = math.atan2(r[2][1], r[2][2]), math.atan2(r[1][0], r[0][0])
+        return tuple(round(math.degrees(v), 6) for v in (rx, ry, rz))
+
+    def _make_transform(self, x_mm, y_mm, z_mm, rx_deg, ry_deg, rz_deg):
+        """Build an IMathTransform from a position (mm) and XYZ rotations (deg)."""
+        data = self._rotation_columns(rx_deg, ry_deg, rz_deg) + [
+            mm_to_m(x_mm), mm_to_m(y_mm), mm_to_m(z_mm),
+            1.0,            # uniform scale
+            0.0, 0.0, 0.0,  # unused
+        ]
+        mathutil = binding.wrap(self._sw.GetMathUtility(), self._mod.IMathUtility)
+        coords = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, data)
+        xform = binding.wrap(mathutil.CreateTransform(coords), self._mod.IMathTransform)
+        if xform is None:
+            raise SolidWorksError("CreateTransform gaf None terug; kon geen transform bouwen.")
+        return xform
+
+    def _transform_data(self, comp) -> list:
+        """The component's transform as the raw 16-float ArrayData."""
+        xform = binding.wrap(comp.Transform2, self._mod.IMathTransform)
+        if xform is None:
+            raise SolidWorksError(f"Component '{comp.Name2}' heeft geen leesbare transform.")
+        return list(xform.ArrayData)
+
+    def _placement(self, comp) -> dict:
+        """Where a component sits: position (mm) + XYZ rotation (deg)."""
+        data = self._transform_data(comp)
+        rx, ry, rz = self._euler_from_columns(data[:9])
+        return {
+            "position_mm": [round(m_to_mm(v), 4) for v in data[9:12]],
+            "rotation_deg": [rx, ry, rz],
+        }
+
+    # Read-back tolerances for a written transform. SolidWorks stores the matrix
+    # as doubles and hands it back unchanged, so anything above round-off means
+    # the write did NOT take (a fixed component, or a mate already driving it).
+    _TRANSFORM_TOLERANCE_MM = 1e-6
+    _ROTATION_TOLERANCE = 1e-9
+
+    def _apply_transform(self, comp, x_mm, y_mm, z_mm, rx_deg, ry_deg, rz_deg) -> dict:
+        """Write a component transform, then read it back and verify it stuck.
+
+        A silently ignored transform is exactly the failure this repo refuses to
+        pass on, so the written matrix is compared element by element with what
+        SolidWorks reports afterwards.
+        """
+        wanted = self._rotation_columns(rx_deg, ry_deg, rz_deg) + [
+            mm_to_m(x_mm), mm_to_m(y_mm), mm_to_m(z_mm)]
+        comp.Transform2 = self._make_transform(x_mm, y_mm, z_mm, rx_deg, ry_deg, rz_deg)
+        got = self._transform_data(comp)[:12]
+        for i, (want, have) in enumerate(zip(wanted, got)):
+            tol = self._ROTATION_TOLERANCE if i < 9 else mm_to_m(self._TRANSFORM_TOLERANCE_MM)
+            if abs(want - have) > tol:
+                raise SolidWorksError(
+                    f"Transform van '{comp.Name2}' is niet toegepast: gevraagd positie "
+                    f"({x_mm:g}, {y_mm:g}, {z_mm:g}) mm rotatie ({rx_deg:g}, {ry_deg:g}, "
+                    f"{rz_deg:g}) graden, teruggelezen positie "
+                    f"{[round(m_to_mm(v), 4) for v in got[9:12]]} mm. Element {i} wijkt "
+                    f"{abs(want - have):.3e} af. Legt een bestaande mate deze component al vast?"
+                )
+        return self._placement(comp)
+
+    # --- components -----------------------------------------------------------
+
+    def _component_dispatches(self, asm) -> list:
+        """Top-level components of the assembly, as raw dispatches (never None)."""
+        comps = asm.GetComponents(True)
+        if not comps:
+            return []
+        return list(comps) if isinstance(comps, (list, tuple)) else [comps]
+
+    def _components(self, asm) -> list:
+        """Top-level components as early-bound IComponent2, in tree order."""
+        return [binding.wrap(c, self._mod.IComponent2) for c in self._component_dispatches(asm)]
+
+    def _component_by_name(self, asm, name: str):
+        """Resolve a component by instance name ('Bed-1') or part name ('Bed').
+
+        The short form is accepted only while it is unambiguous; with two copies
+        inserted it raises and lists the instance names instead of guessing.
+        """
+        key = (name or "").strip().lower()
+        if not key:
+            raise SolidWorksError("Geef een componentnaam op.")
+        comps = self._components(asm)
+        exact = [c for c in comps if c.Name2.lower() == key]
+        if len(exact) == 1:
+            return exact[0]
+        prefixed = [c for c in comps if c.Name2.lower().startswith(key + "-")]
+        if len(prefixed) == 1:
+            return prefixed[0]
+        if len(prefixed) > 1:
+            raise SolidWorksError(
+                f"Componentnaam '{name}' is niet uniek; kandidaten: "
+                f"{sorted(c.Name2 for c in prefixed)}."
+            )
+        raise SolidWorksError(
+            f"Component '{name}' niet gevonden. Aanwezig: {[c.Name2 for c in comps]}."
+        )
+
+    def _component_box(self, comp) -> dict:
+        """The component's bounding box in ASSEMBLY coordinates (mm)."""
+        box = comp.GetBox(False, False)  # no reference planes, no sketches
+        if not box or len(box) < 6:
+            return None
+        xmin, ymin, zmin, xmax, ymax, zmax = (m_to_mm(v) for v in box[:6])
+        return {
+            "min_mm": [round(xmin, 4), round(ymin, 4), round(zmin, 4)],
+            "max_mm": [round(xmax, 4), round(ymax, 4), round(zmax, 4)],
+            "size_mm": [round(xmax - xmin, 4), round(ymax - ymin, 4), round(zmax - zmin, 4)],
+        }
+
+    def _component_entry(self, comp) -> dict:
+        return {
+            "name": comp.Name2,
+            "path": comp.GetPathName(),
+            "fixed": bool(comp.IsFixed()),
+            **self._placement(comp),
+            "bounding_box_mm": self._component_box(comp),
+        }
+
+    def _fix_component(self, asm, comp) -> None:
+        """Pin a component in place (FixComponent acts on the selection), and verify."""
+        model = self._require_model()
+        model.ClearSelection2(True)
+        selmgr = binding.wrap(model.SelectionManager, self._mod.ISelectionMgr)
+        if not comp.Select4(False, selmgr.CreateSelectData(), False):
+            raise SolidWorksError(f"Kon component '{comp.Name2}' niet selecteren.")
+        asm.FixComponent()
+        model.ClearSelection2(True)
+        if not comp.IsFixed():
+            raise SolidWorksError(f"Component '{comp.Name2}' kon niet vastgezet worden (fixed).")
+
+    def insert_component(self, path: str, x_mm: float = 0.0, y_mm: float = 0.0,
+                         z_mm: float = 0.0, fixed: bool | None = None) -> dict:
+        """Insert a part into the current assembly with its ORIGIN at (x, y, z) mm.
+
+        The part's own origin lands on the given point (AddComponent5's own X/Y/Z
+        would centre the bounding box there instead, so the position is applied
+        as a transform and verified by reading it back).
+
+        fixed: True pins the component in place, False leaves it free to be moved
+        by mates. The default (None) fixes only the FIRST component, which is the
+        ground the rest of the assembly is positioned against.
+        """
+        asm = self._require_assembly()
+        abs_path = os.path.abspath(path)
+        if not os.path.isfile(abs_path):
+            raise SolidWorksError(f"Part niet gevonden: {abs_path}")
+        if fixed is None:
+            fixed = not self._component_dispatches(asm)
+
+        # AddComponent5 gives None for a part that is not loaded, so open it
+        # silently first and switch back to the assembly before inserting.
+        title = self._model.GetTitle()
+        self._sw.OpenDoc6(abs_path, SW_DOC_PART, SW_OPEN_DOC_SILENT, "", 0, 0)
+        self._sw.ActivateDoc3(title, True, 0, 0)
+
+        comp = binding.wrap(
+            asm.AddComponent5(abs_path, SW_ADD_COMPONENT_CURRENT_CONFIG, "", False, "",
+                              0.0, 0.0, 0.0),
+            self._mod.IComponent2,
+        )
+        if comp is None:
+            raise SolidWorksError(
+                f"AddComponent5 gaf None voor '{abs_path}'. Is het een geldig "
+                "SolidWorks-part en kon SolidWorks het laden?"
+            )
+        self._apply_transform(comp, x_mm, y_mm, z_mm, 0.0, 0.0, 0.0)
+        if fixed:
+            self._fix_component(asm, comp)
+        return {"ok": True, "component": self._component_entry(comp)}
+
+    def list_components(self) -> dict:
+        """List the components: name, path, fixed, placement, bounding box."""
+        asm = self._require_assembly()
+        comps = [self._component_entry(c) for c in self._components(asm)]
+        return {"ok": True, "count": len(comps), "components": comps}
+
+    def set_component_transform(self, name: str, x_mm: float, y_mm: float, z_mm: float,
+                                rx_deg: float = 0.0, ry_deg: float = 0.0,
+                                rz_deg: float = 0.0) -> dict:
+        """Move/rotate a component: origin to (x, y, z) mm, rotated rx/ry/rz degrees.
+
+        Rotations are applied X, then Y, then Z about the assembly axes, and work
+        on a fixed component too (it simply becomes fixed at the new spot). The
+        transform is read back and compared, so a write SolidWorks ignored fails
+        loudly. Note that mates re-solve on the next rebuild and will override a
+        manual move.
+        """
+        asm = self._require_assembly()
+        comp = self._component_by_name(asm, name)
+        placement = self._apply_transform(comp, x_mm, y_mm, z_mm, rx_deg, ry_deg, rz_deg)
+        return {"ok": True, "component": comp.Name2, **placement,
+                "bounding_box_mm": self._component_box(comp)}
+
+    # --- faces inside a component --------------------------------------------
+
+    def _component_faces(self, comp) -> list:
+        """Every face of every solid body of the component (component coordinates)."""
+        bodies = comp.GetBodies2(SW_BODY_SOLID)
+        if not bodies:
+            raise SolidWorksError(
+                f"Component '{comp.Name2}' heeft geen solid body om een vlak op te kiezen."
+            )
+        if not isinstance(bodies, (list, tuple)):
+            bodies = [bodies]
+        faces = []
+        for body_dispatch in bodies:
+            body_faces = binding.wrap(body_dispatch, self._mod.IBody2).GetFaces()
+            if not body_faces:
+                continue
+            faces.extend(body_faces if isinstance(body_faces, (list, tuple)) else [body_faces])
+        return faces
+
+    def _component_face(self, comp, selector: str):
+        """Face '+x' / '-z:inner' of a component; returns (IFace2, position_mm).
+
+        The direction is read in the COMPONENT's own coordinate system (verified:
+        a component's faces keep part coordinates however the component is
+        turned), so '-x' is always the part's own -X face. ':inner' picks the
+        cavity side of a hollow part -- the inside of a room wall, not its skin.
+        """
+        normal, side = self._parse_face_selector(selector)
+        face, position_mm = self._pick_planar_face(self._component_faces(comp), normal, side)
+        if face is None:
+            raise SolidWorksError(
+                f"Component '{comp.Name2}' heeft geen planair vlak dat naar {selector} wijst."
+            )
+        return face, position_mm
+
+    def _face_plane_in_assembly(self, comp, face):
+        """A component face as (point, normal) in ASSEMBLY coordinates, in metres.
+
+        The face is reported in component coordinates, so both are pushed through
+        the component transform: p' = R*p + t for the point, R*n for the normal
+        (R is orthonormal here -- components are never scaled).
+        """
+        data = self._transform_data(comp)
+        rot, trans = data[:9], data[9:12]
+
+        def rotate(v):
+            # ArrayData is COLUMN-major: rot[3*col + row] is row `row` of column `col`.
+            return [sum(rot[3 * col + row] * v[col] for col in range(3)) for row in range(3)]
+
+        box = face.GetBox()
+        centre = rotate([(box[i] + box[i + 3]) / 2.0 for i in range(3)])
+        point = [centre[i] + trans[i] for i in range(3)]
+        return point, rotate(list(face.Normal))
+
+    # --- mates ----------------------------------------------------------------
+
+    # A mate that builds but resolves to the wrong side is a silent geometry
+    # error, so every mate is measured back from the geometry afterwards: the
+    # perpendicular distance between the two mated planes (coincident/distance)
+    # or the angle between their normals (parallel/perpendicular).
+    _MATE_DISTANCE_TOLERANCE_MM = 1e-3
+    _MATE_ANGLE_TOLERANCE_DEG = 0.01
+    _MATE_EXPECTED_ANGLE_DEG = {"parallel": 0.0, "perpendicular": 90.0}
+
+    def _measure_mate(self, comp_a, face_a, comp_b, face_b) -> tuple:
+        """(perpendicular distance mm, angle between normals deg) after a rebuild."""
+        point_a, normal_a = self._face_plane_in_assembly(comp_a, face_a)
+        point_b, normal_b = self._face_plane_in_assembly(comp_b, face_b)
+        gap = abs(sum((point_b[i] - point_a[i]) * normal_a[i] for i in range(3)))
+        dot = abs(sum(normal_a[i] * normal_b[i] for i in range(3)))
+        return m_to_mm(gap), math.degrees(math.acos(max(-1.0, min(1.0, dot))))
+
+    def add_mate(self, comp_a: str, face_a: str, comp_b: str, face_b: str,
+                 mate_type: str = "coincident", distance_mm: float = 0.0,
+                 flip: bool = False) -> dict:
+        """Mate a planar face of one component to a planar face of another.
+
+        comp_a/comp_b are component names ('Bed' or 'Bed-1'); face_a/face_b are
+        direction selectors in each component's OWN frame ('+x', '-z', or
+        '+y:inner' for the cavity side of a hollow part). mate_type is
+        'coincident', 'distance', 'parallel' or 'perpendicular'; distance_mm
+        applies to 'distance'. flip swaps the solution when SolidWorks lands on
+        the mirror side.
+
+        After the rebuild the result is measured back from the geometry, and the
+        mate is rejected if it did not deliver what was asked.
+        """
+        asm = self._require_assembly()
+        model = self._model
+        key = (mate_type or "").lower().strip()
+        if key not in MATE_TYPES:
+            raise SolidWorksError(
+                f"Onbekend mate-type '{mate_type}'. Gebruik: {sorted(MATE_TYPES)}."
+            )
+        if key == "distance" and distance_mm < 0:
+            raise SolidWorksError(f"distance moet >= 0 zijn (kreeg {distance_mm}).")
+        if (comp_a or "").strip().lower() == (comp_b or "").strip().lower():
+            raise SolidWorksError("Een mate legt twee VERSCHILLENDE componenten vast.")
+
+        first = self._component_by_name(asm, comp_a)
+        second = self._component_by_name(asm, comp_b)
+        face_1, _ = self._component_face(first, face_a)
+        face_2, _ = self._component_face(second, face_b)
+
+        # Both mate entities go in with selection mark 1 (cracked empirically).
+        model.ClearSelection2(True)
+        selmgr = binding.wrap(model.SelectionManager, self._mod.ISelectionMgr)
+        select_data = selmgr.CreateSelectData()
+        select_data.Mark = 1
+        for entity, comp, selector in ((face_1, first, face_a), (face_2, second, face_b)):
+            if not binding.wrap(entity, self._mod.IEntity).Select4(True, select_data):
+                raise SolidWorksError(
+                    f"Kon vlak {selector} van component '{comp.Name2}' niet selecteren."
+                )
+
+        distance_m = mm_to_m(distance_mm) if key == "distance" else 0.0
+        result = asm.AddMate5(
+            MATE_TYPES[key],           # MateTypeFromEnum
+            SW_MATE_ALIGN_CLOSEST,     # AlignFromEnum (components are pre-positioned)
+            bool(flip),                # Flip
+            distance_m,                # Distance
+            distance_m, distance_m,    # DistanceAbsUpperLimit, DistanceAbsLowerLimit
+            1.0, 1.0,                  # GearRatioNumerator, GearRatioDenominator
+            0.0, 0.0, 0.0,             # Angle, AngleAbsUpperLimit, AngleAbsLowerLimit
+            False,                     # ForPositioningOnly
+            False,                     # LockRotation
+            0,                         # WidthMateOption
+            0,                         # ErrorStatus (out)
+        )
+        model.ClearSelection2(True)
+        mate, status = (result[0], result[-1]) if isinstance(result, tuple) else (result, None)
+        if mate is None or (status is not None and int(status) != SW_ADD_MATE_NO_ERROR):
+            raise SolidWorksError(
+                f"Mate '{key}' tussen {first.Name2}:{face_a} en {second.Name2}:{face_b} "
+                f"mislukte (AddMate5 status {status}). Staan de vlakken in een stand die "
+                "deze mate toelaat, en spreekt hij bestaande mates niet tegen?"
+            )
+
+        asm.EditRebuild()
+        measured_mm, angle_deg = self._measure_mate(first, face_1, second, face_2)
+        expected_mm = distance_mm if key == "distance" else (0.0 if key == "coincident" else None)
+        if (expected_mm is not None
+                and abs(measured_mm - expected_mm) > self._MATE_DISTANCE_TOLERANCE_MM):
+            raise SolidWorksError(
+                f"Mate '{key}' is gebouwd maar levert {measured_mm:.4f} mm in plaats van "
+                f"{expected_mm:g} mm tussen {first.Name2}:{face_a} en {second.Name2}:{face_b}. "
+                "Probeer flip=True, of controleer of een andere mate deze tegenwerkt."
+            )
+        expected_angle = self._MATE_EXPECTED_ANGLE_DEG.get(key)
+        if (expected_angle is not None
+                and abs(angle_deg - expected_angle) > self._MATE_ANGLE_TOLERANCE_DEG):
+            raise SolidWorksError(
+                f"Mate '{key}' is gebouwd maar de vlakken staan {angle_deg:.4f} graden uit "
+                f"elkaar in plaats van {expected_angle:g}."
+            )
+        return {
+            "ok": True,
+            "mate_type": key,
+            "components": [first.Name2, second.Name2],
+            "faces": [face_a, face_b],
+            "distance_mm": round(measured_mm, 6),
+            "angle_deg": round(angle_deg, 6),
+            "placements": {c.Name2: self._placement(c) for c in (first, second)},
+        }
+
+    # --- interference ---------------------------------------------------------
+
+    def check_interference(self) -> dict:
+        """Find components whose solids overlap; volumes in mm^3, per pair.
+
+        Touching faces are NOT an interference (a bed standing on the floor is
+        fine); only real overlapping material counts. SolidWorks reports each
+        disjoint overlapping lump separately, so the lumps are summed per
+        component pair and counted as `regions`.
+        """
+        asm = self._require_assembly()
+        manager = binding.wrap(asm.InterferenceDetectionManager,
+                               self._mod.IInterferenceDetectionMgr)
+        if manager is None:
+            raise SolidWorksError("Kon de InterferenceDetectionManager niet openen.")
+        manager.TreatCoincidenceAsInterference = False
+        manager.TreatSubAssembliesAsComponents = True
+        manager.IncludeMultibodyPartInterferences = False
+        pairs = {}
+        try:
+            found = manager.GetInterferences()
+            for item in (found or []):
+                interference = binding.wrap(item, self._mod.IInterference)
+                components = interference.Components
+                names = tuple(sorted(
+                    binding.wrap(c, self._mod.IComponent2).Name2 for c in (components or [])
+                ))
+                entry = pairs.setdefault(
+                    names, {"components": list(names), "volume_mm3": 0.0, "regions": 0})
+                entry["volume_mm3"] += interference.Volume * 1e9
+                entry["regions"] += 1
+        finally:
+            manager.Done()
+        result = sorted(pairs.values(), key=lambda e: -e["volume_mm3"])
+        for entry in result:
+            entry["volume_mm3"] = round(entry["volume_mm3"], 4)
+        return {"ok": True, "count": len(result), "interferences": result}
+
+    def get_assembly_bounding_box(self) -> dict:
+        """Bounding box of the whole assembly (min/max/size in mm)."""
+        self._require_assembly()
+        return {"ok": True, "bounding_box_mm": self._bounding_box()}

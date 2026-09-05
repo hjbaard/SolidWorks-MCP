@@ -67,6 +67,96 @@ work; it composes 8 tools into one printable part. Gotcha found + fixed in the d
 a through slot adds tangent z-parallel edges, so add_fillet(edges="z") must run
 BEFORE the slot to round only the 4 box corners.
 
+### M6 — Assemblies ✅
+`scripts/m6_demo_kamer.py`. Nine tools: new/open/save_assembly, insert_component,
+list_components, set_component_transform, add_mate, check_interference,
+get_assembly_bounding_box; export/screenshot/rebuild/get_mass_properties/close_part
+now serve assemblies too. Demo: three saved parts (a walled room + bed + desk)
+composed into one assembly, every placement asserted against the geometry —
+assembly bbox 3900x2700x2480, both pieces of furniture standing on y=0, a 50 mm
+distance mate to the wall read back from the transform (bed origin x=2790), zero
+interfering pairs — plus a SLDASM/PNG/STEP write. Verified visually from a plan
+view (bed against the far wall with its gap, desk clear of the door).
+
+Four API facts cracked empirically (all four are load-bearing):
+1. **AddComponent5 returns None for a part that is not LOADED.** Each component is
+   opened with OpenDoc6(swOpenDocOptions_Silent) first and the assembly
+   re-activated with ActivateDoc3 before inserting.
+2. **AddComponent5's X/Y/Z do not place the part's origin** — it drops the
+   component with its bounding-box CENTRE on that point (inserting the room at
+   (0,0,0) gave a transform of (-1950,-1250,-1240)). So `insert_component` always
+   writes the position as a transform afterwards, and reads it back to compare.
+3. **IMathTransform.ArrayData holds the rotation COLUMN-major**: data[0:3] is the
+   first COLUMN, i.e. the transpose of the obvious reading. Pinned by rotating a
+   component 90° about Y and checking its box (predicted x'=z, z'=-x matched the
+   transposed reading exactly, the row-major reading gave the mirror). Pure
+   `_rotation_columns` / `_euler_from_columns` are unit-tested, round-trip and
+   gimbal-lock included.
+4. **A component's faces come back in COMPONENT coordinates** however the
+   component is rotated. So a face selector means the part's own face, which is
+   the stable thing to name; the selector is pushed through the transform only
+   when a mate is measured back in assembly space.
+
+Mates: `AddMate5` with BOTH entities selected at mark 1, align = swMateAlignCLOSEST
+(every component is pre-positioned first, so "closest" is deterministic), and
+ErrorStatus checked against swAddMateError_NoError = **1**, not 0. A mate that
+builds but resolves to the wrong side is a silent geometry error, so after the
+rebuild the result is measured back from the geometry — perpendicular distance
+between the two planes for coincident/distance, angle between the normals for
+parallel/perpendicular — and rejected if it is not what was asked. Proven by
+inserting the bed 90 mm off and 25 mm above the floor and letting the mates move
+it. `flip` is real and observable: the same 5 mm distance mate lands a block at
+x=45 (clear) or x=35 (reaching in), both genuinely 5 mm apart. Only the four
+planar mate types are exposed; concentric/tangent would need a cylindrical
+selection the planar face picker cannot produce.
+
+Interference: `IAssemblyDoc.InterferenceDetectionManager` with
+TreatCoincidenceAsInterference=False, so a bed standing ON the floor is contact,
+not a clash. SolidWorks reports each disjoint overlapping lump separately (a bed
+frame pushed into the floor gave 2 x 5,000,000 mm³ — one per rail, exactly
+25x2000x100 each), so lumps are summed per component pair and counted as
+`regions`. Verified against a hand calc: 5x20x10 overlap = 1000 mm³.
+
+Document type is now checked at the choke points every part builder passes through
+(`_first_ref_plane` / `_ref_planes` / `_solid_body`), so a part tool called on an
+assembly fails at its own root cause instead of much later inside a sketch.
+
+### Face selection on hollow parts — fixed (2026-09-05)
+`_planar_face_by_normal` filtered on the normal and kept whichever face came first,
+but a normal does NOT identify a face: a shelled box has several planar faces per
+direction (for +Z the outer top AND the cavity floor of the opposite wall), so the
+choice was effectively the API's listing order. It now picks the EXTREME along the
+direction: outermost by default, innermost with a `:inner` suffix on the selector
+(`+y:inner`) — which is also the only way to address the inside of a room wall, so
+the M6 mates depend on it. Verified on a closed 2 mm shell of a 40x20x10 block:
+outer +Z at z=10, inner at z=2, and the existing on-face guard proves which face
+was chosen (a point on the cavity floor is rejected by `+z` with "staat -8.000 mm
+buiten het vlak" and accepted by `+z:inner`, removing π·2²·2 = 25.13 mm³).
+
+Two adjacent gaps this exposed, both fixed:
+- **A rejected on-face point left the sketch open**, so the very next operation's
+  InsertSketch CLOSED it instead of opening one and died on `ActiveSketch is None`
+  — i.e. one loud failure broke the following call. The sketch is now closed in a
+  `finally` (`_open_face_sketch`), and a missing active sketch raises at its own
+  root cause.
+- **`IAssemblyDoc.GetBox` is stale until the assembly is rebuilt**: after moving a
+  component it still reported the previous extents (a component inserted at
+  x=100 still measured from -10). `_bounding_box` rebuilds first for assemblies.
+  `get_bounding_box` on an assembly also used to return `null` silently (the
+  IPartDoc QI failed and the error was swallowed) — it now measures the assembly.
+
+Tests: **124 green** (was 73). The pure layer gained face-selector parsing, the
+column-major rotation array, the Euler round-trip incl. gimbal lock, and a
+parametrised check that EVERY MCP tool forwards its own parameters, in order, to
+a session method that accepts them (parsed from the source with `ast`, so it
+needs no COM). A new `tests/test_assembly.py` covers inserting, placement,
+rotation, all four mate types plus flip, interference (apart / touching /
+overlapping), the assembly bounding box, save+reopen, the doc-type guards both
+ways and the outer/inner face fix; its components are two blocks the fixture
+builds and saves with the part tools, so the suite stays self-contained and
+hand-calculable. `scripts/m5_demo_bracket.py` re-run after the face-selection
+fix: identical 58297.635 mm^3, no regression.
+
 ### 3D-print features (2026-06-26)
 Demand-driven from the bracket demo (research workflow first; HoleWizard rejected as
 locale-fragile, same class as the mirror dead-end):
@@ -345,6 +435,14 @@ guessed — and several differ from common web docs:
   (bool/int/double) against the typelib.
 - Plane selection by name (`"Front Plane"`) is language-dependent; we walk the
   feature tree for `GetTypeName2() == "RefPlane"` instead.
+- `swDefaultTemplateAssembly = 9`; `swAddMateError_NoError = **1**` (not 0, so a
+  falsy check on the status would read a success as a failure).
+- `IAssemblyDoc.AddComponent5` returns None unless the part is already loaded, and
+  its X/Y/Z place the component's bounding-box CENTRE, not the part origin.
+- `IMathTransform.ArrayData` stores the 3x3 rotation COLUMN-major (data[0:3] is
+  the first column) — the transpose of the obvious reading.
+- `IComponent2.GetBox` follows the component transform, but `IAssemblyDoc.GetBox`
+  is stale until the assembly is rebuilt.
 
 ### M4 — Linear pattern 🚧
 `scripts/m4_pattern.py` + `add_linear_pattern`: repeat a feature N times along
@@ -385,12 +483,11 @@ a pattern. Revisit only if a macro-recorded sequence reveals a working path.
 
 - **Mirror**: crack InsertMirrorFeature2 (or use a definition object). The offset
   reference plane half already works.
-- **Holes on any face** (beyond +Z): the face-sketch 2D frame differs per face,
-  so (x,y) needs a model->sketch transform.
-- General revolve: arbitrary (radius, z) profiles; generic sketch primitives.
-- Equations (`IEquationMgr`); richer rebuild-error reporting.
-- Worth doing soon: an end-to-end **agentic-loop demo** on a non-trivial spec to
-  validate the 20-tool set as a whole.
+- Assemblies: component patterns, in-context features and configurations are all
+  still out of scope; mates are limited to planar faces (concentric/tangent need
+  a cylindrical selection the face picker cannot produce).
+- Richer rebuild-error reporting (which feature failed, not just a flag).
+- Drawings and Simulation (FEA) remain untouched.
 
 ## Notes
 

@@ -3,6 +3,37 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Assemblies (M6)**: `new_assembly`, `open_assembly`, `save_assembly`,
+  `insert_component`, `list_components`, `set_component_transform`, `add_mate`
+  (coincident / distance / parallel / perpendicular between planar faces),
+  `check_interference` and `get_assembly_bounding_box`. `export`, `screenshot`,
+  `rebuild`, `get_mass_properties` and `close_part` now serve assemblies too.
+- Every placement is verified against the geometry: a written component
+  transform is read back and compared, and a mate is measured back after the
+  rebuild (perpendicular distance, or the angle between the faces) and rejected
+  if it did not deliver what was asked.
+- Face selectors take an optional `:inner` suffix (`+y:inner`) to address the
+  cavity side of a hollow part.
+- `scripts/m6_demo_kamer.py`: assembles a furnished bedroom from three parts and
+  asserts the bounding box, the floor contact, a 50 mm distance mate and a
+  clash-free interference check.
+
+### Fixed
+- **Face selection on hollow parts**: `_planar_face_by_normal` returned whichever
+  face the API listed first when several shared the same normal, so on a shelled
+  box it could pick the inner face of the opposite wall instead of the outer
+  skin. It now picks the extreme along the direction — outermost by default,
+  innermost with `:inner`.
+- A sketch left open by a rejected on-face point (`add_hole_on_face`,
+  `cut_profile_on_face`) broke the *next* operation; the sketch is now always
+  closed, and a missing active sketch fails at its own root cause.
+- `get_bounding_box` on an assembly returned `null` instead of failing, and
+  `IAssemblyDoc.GetBox` reports stale extents until the assembly is rebuilt —
+  both now give a live box or a readable error.
+
 ## [0.1.0] — 2026-06-26
 
 **First public release — an early, experimental first draft.** It works

@@ -187,3 +187,109 @@ def test_path_starts_along_x_wrong_direction_raises():
 def test_path_starts_along_x_too_few_points_raises():
     with pytest.raises(SolidWorksError):
         SolidWorksSession._require_path_starts_along_x([[0, 0]])
+
+
+# --- assembly placement maths (M6) -------------------------------------------
+
+
+def test_parse_face_selector_defaults_to_outer(s):
+    assert s._parse_face_selector("+z") == ((0.0, 0.0, 1.0), "outer")
+    assert s._parse_face_selector("-X") == ((-1.0, 0.0, 0.0), "outer")
+
+
+def test_parse_face_selector_inner_suffix(s):
+    assert s._parse_face_selector("+y:inner") == ((0.0, 1.0, 0.0), "inner")
+    assert s._parse_face_selector(" -z : OUTER ") == ((0.0, 0.0, -1.0), "outer")
+
+
+def test_parse_face_selector_rejects_unknown_side(s):
+    with pytest.raises(SolidWorksError):
+        s._parse_face_selector("+z:middle")
+
+
+def test_parse_face_selector_rejects_unknown_direction(s):
+    with pytest.raises(SolidWorksError):
+        s._parse_face_selector("up:inner")
+
+
+def test_rotation_columns_identity():
+    assert SolidWorksSession._rotation_columns(0, 0, 0) == pytest.approx(
+        [1, 0, 0, 0, 1, 0, 0, 0, 1], abs=1e-12)
+
+
+def test_rotation_columns_are_column_major():
+    # Ry(+90) maps (x,y,z) -> (z,y,-x). SolidWorks reads ArrayData COLUMN-major,
+    # so the array is the TRANSPOSE of the matrix written out row by row -- this
+    # is the value SolidWorks actually returned for a 90-degree turned component.
+    assert SolidWorksSession._rotation_columns(0, 90, 0) == pytest.approx(
+        [0, 0, -1, 0, 1, 0, 1, 0, 0], abs=1e-12)
+
+
+def test_rotation_columns_apply_x_then_y_then_z():
+    # R = Rz*Ry*Rx: rotating 90 deg about X then 90 deg about Z sends
+    # (1,0,0) -> (0,1,0) and (0,1,0) -> (0,0,1), which pins the order.
+    columns = SolidWorksSession._rotation_columns(90, 0, 90)
+    rows = [[columns[c * 3 + r] for c in range(3)] for r in range(3)]
+
+    def apply(v):
+        return [sum(rows[r][c] * v[c] for c in range(3)) for r in range(3)]
+
+    assert apply([1, 0, 0]) == pytest.approx([0, 1, 0], abs=1e-12)
+    assert apply([0, 1, 0]) == pytest.approx([0, 0, 1], abs=1e-12)
+
+
+@pytest.mark.parametrize("angles", [(0, 0, 0), (90, 0, 0), (0, 0, -45),
+                                    (10, 20, 30), (-120, 35, 170)])
+def test_euler_round_trip(angles):
+    columns = SolidWorksSession._rotation_columns(*angles)
+    assert SolidWorksSession._euler_from_columns(columns) == pytest.approx(angles, abs=1e-6)
+
+
+def test_euler_gimbal_lock_still_reproduces_the_matrix():
+    # at ry = 90 deg the X and Z rotations are the same motion; we report rz = 0
+    # and fold everything into rx, which must rebuild the identical matrix.
+    columns = SolidWorksSession._rotation_columns(30, 90, 20)
+    rx, ry, rz = SolidWorksSession._euler_from_columns(columns)
+    assert rz == 0.0 and ry == pytest.approx(90.0, abs=1e-9)
+    assert SolidWorksSession._rotation_columns(rx, ry, rz) == pytest.approx(columns, abs=1e-9)
+
+
+# --- MCP wiring ---------------------------------------------------------------
+
+
+def _tool_delegations():
+    """Every MCP tool as (tool name, its parameter names, the _call arguments).
+
+    Parsed from the source rather than imported: importing the server module
+    would start a COM worker thread, which this pure layer must not need.
+    """
+    import ast
+    import pathlib
+
+    source = pathlib.Path("src/solidworks_mcp/server.py").read_text(encoding="utf-8")
+    for node in ast.parse(source).body:
+        if not isinstance(node, ast.AsyncFunctionDef) or not node.decorator_list:
+            continue
+        call = next(n for n in ast.walk(node)
+                    if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "_call")
+        target, *passed = call.args
+        yield (node.name,
+               [a.arg for a in node.args.args],
+               target.attr,
+               [getattr(a, "id", None) for a in passed])
+
+
+@pytest.mark.parametrize("tool,params,target,passed", list(_tool_delegations()))
+def test_tool_forwards_its_arguments_in_order(tool, params, target, passed):
+    """A tool must hand the session method its own parameters, in order.
+
+    _call forwards positionally, so a reordered or dropped argument would send
+    the wrong value to SolidWorks and only show up as strange geometry.
+    """
+    import inspect
+
+    method = getattr(SolidWorksSession, target, None)
+    assert method is not None, f"{tool} delegates to a session method that does not exist"
+    assert passed == params, f"{tool} forwards {passed} but takes {params}"
+    accepted = list(inspect.signature(method).parameters)[1:]  # drop self
+    assert params == accepted[:len(params)], f"{tool} does not match {target}{tuple(accepted)}"
