@@ -71,7 +71,7 @@ class ComWorker:
 
     def submit(self, fn) -> "concurrent.futures.Future":
         if self._shutting_down:
-            raise SolidWorksError("COM worker is afgesloten; geen nieuwe operaties mogelijk.")
+            raise SolidWorksError("The COM worker is shut down; no new operations are possible.")
         fut: "concurrent.futures.Future" = concurrent.futures.Future()
         self._queue.put((fn, fut))
         return fut
@@ -88,9 +88,9 @@ class ComWorker:
             return await asyncio.wait_for(asyncio.wrap_future(fut), self._call_timeout_s)
         except asyncio.TimeoutError:
             raise SolidWorksError(
-                f"SolidWorks reageerde niet binnen {self._call_timeout_s:.0f}s. "
-                "Waarschijnlijk staat er een modale dialoog open in SolidWorks. "
-                "Sluit eventuele dialogen; herstart de server als het blijft hangen."
+                f"SolidWorks did not respond within {self._call_timeout_s:.0f}s. "
+                "A modal dialog is probably open in SolidWorks. "
+                "Close any dialogs; restart the server if it keeps hanging."
             )
 
     def shutdown(self) -> None:

@@ -92,7 +92,7 @@ class SolidWorksSession:
 
     def _require_model(self):
         if self._model is None:
-            raise SolidWorksError("Geen actief document. Roep eerst 'new_part' of 'new_assembly' aan.")
+            raise SolidWorksError("No active document. Call 'new_part' or 'new_assembly' first.")
         return self._model
 
     def _require_part(self):
@@ -105,8 +105,8 @@ class SolidWorksSession:
         model = self._require_model()
         if int(model.GetType()) != SW_DOC_PART:
             raise SolidWorksError(
-                f"Het huidige document '{model.GetTitle()}' is geen part maar een assembly. "
-                "Roep 'new_part' of 'open_part' aan, of gebruik de assembly-tools."
+                f"The current document '{model.GetTitle()}' is an assembly, not a part. "
+                "Call 'new_part' or 'open_part', or use the assembly tools."
             )
         return binding.wrap(model, self._mod.IPartDoc)
 
@@ -115,8 +115,8 @@ class SolidWorksSession:
         model = self._require_model()
         if int(model.GetType()) != SW_DOC_ASSEMBLY:
             raise SolidWorksError(
-                f"Het huidige document '{model.GetTitle()}' is geen assembly. "
-                "Roep eerst 'new_assembly' of 'open_assembly' aan."
+                f"The current document '{model.GetTitle()}' is not an assembly. "
+                "Call 'new_assembly' or 'open_assembly' first."
             )
         return binding.wrap(model, self._mod.IAssemblyDoc)
 
@@ -147,7 +147,7 @@ class SolidWorksSession:
             # Fallback avoids a "template not found" modal dialog.
             model = binding.wrap(sw.NewPart(), self._mod.IModelDoc2)
         if model is None:
-            raise SolidWorksError("Kon geen nieuw part-document maken (template + NewPart faalden).")
+            raise SolidWorksError("Could not create a new part document (template and NewPart both failed).")
         self._model = model
         return {"ok": True, "title": model.GetTitle()}
 
@@ -155,7 +155,7 @@ class SolidWorksSession:
         """Close the current document (part or assembly). CloseDoc never prompts."""
         model = self._require_model()
         if save:
-            raise SolidWorksError("Opslaan bij sluiten is nog niet ondersteund; gebruik 'export'.")
+            raise SolidWorksError("Saving on close is not supported yet; use 'save_part', 'save_assembly' or 'export' first.")
         title = model.GetTitle()
         self._sw.CloseDoc(title)
         self._model = None
@@ -172,8 +172,8 @@ class SolidWorksSession:
         result = self._model.SaveAs3(abs_path, SW_SAVE_AS_CURRENT_VERSION, SW_SAVE_AS_OPTIONS_SILENT)
         if not os.path.isfile(abs_path) or (before is not None and os.path.getmtime(abs_path) == before):
             raise SolidWorksError(
-                f"Schrijven mislukt: '{abs_path}' is niet (her)schreven; SaveAs3 gaf {result}. "
-                "Is het bestand open of vergrendeld?"
+                f"Write failed: '{abs_path}' was not (re)written; SaveAs3 returned {result}. "
+                "Is the file open or locked?"
             )
 
     def save_part(self, path: str) -> dict:
@@ -190,12 +190,12 @@ class SolidWorksSession:
         sw = self._ensure()
         abs_path = os.path.abspath(path)
         if not os.path.isfile(abs_path):
-            raise SolidWorksError(f"Bestand niet gevonden: {abs_path}")
+            raise SolidWorksError(f"File not found: {abs_path}")
         result = sw.OpenDoc6(abs_path, SW_DOC_PART, 0, "", 0, 0)
         doc = result[0] if isinstance(result, tuple) else result
         model = binding.wrap(doc, self._mod.IModelDoc2)
         if model is None:
-            raise SolidWorksError(f"Kon het part niet openen: {abs_path}")
+            raise SolidWorksError(f"Could not open the part: {abs_path}")
         self._model = model
         return {"ok": True, "title": model.GetTitle(), "path": abs_path}
 
@@ -223,7 +223,7 @@ class SolidWorksSession:
         part = self._require_part()
         bodies = part.GetBodies2(SW_BODY_SOLID, True)
         if not bodies:
-            raise SolidWorksError("Geen solid body; bouw eerst geometrie (bv. add_box).")
+            raise SolidWorksError("No solid body; build geometry first (e.g. add_box).")
         if not isinstance(bodies, (list, tuple)):
             bodies = [bodies]
         return binding.wrap(bodies[0], self._mod.IBody2)
@@ -245,7 +245,7 @@ class SolidWorksSession:
         along `target`) or (None, None) if no planar face faces that way.
         """
         if side not in self._FACE_SIDES:
-            raise SolidWorksError(f"Onbekende vlakzijde '{side}'. Gebruik 'outer' of 'inner'.")
+            raise SolidWorksError(f"Unknown face side '{side}'. Use 'outer' or 'inner'.")
         tx, ty, tz = target
         best, best_pos = None, None
         for face_dispatch in faces:
@@ -281,7 +281,7 @@ class SolidWorksSession:
         """'+z'/'-x'/... -> a unit vector tuple. Raises on an unknown token."""
         key = (token or "").lower().strip()
         if key not in self._DIRECTIONS:
-            raise SolidWorksError(f"Onbekende richting '{token}'. Gebruik +x/-x/+y/-y/+z/-z.")
+            raise SolidWorksError(f"Unknown direction '{token}'. Use +x/-x/+y/-y/+z/-z.")
         return self._DIRECTIONS[key]
 
     def _parse_face_selector(self, token: str):
@@ -296,7 +296,7 @@ class SolidWorksSession:
         side = side.strip() or "outer"
         if side not in self._FACE_SIDES:
             raise SolidWorksError(
-                f"Onbekende vlakzijde ':{side}' in '{token}'. Gebruik ':outer' (standaard) of ':inner'."
+                f"Unknown face side ':{side}' in '{token}'. Use ':outer' (default) or ':inner'."
             )
         return self._parse_direction(direction), side
 
@@ -366,7 +366,7 @@ class SolidWorksSession:
         sel = str(selector).lower()
         if sel != "all" and sel not in self._EDGE_AXES:
             raise SolidWorksError(
-                f"Onbekende edge-selector '{selector}'. Gebruik 'all', 'x'/'y'/'z' of indices als '2,5'."
+                f"Unknown edge selector '{selector}'. Use 'all', 'x'/'y'/'z' or indices like '2,5'."
             )
         target = self._EDGE_AXES.get(sel)
         for edge_dispatch in edges:
@@ -408,13 +408,13 @@ class SolidWorksSession:
         model = self._require_model()
         for value, label in ((width_mm, "width"), (height_mm, "height"), (depth_mm, "depth")):
             if value <= 0:
-                raise SolidWorksError(f"{label} moet > 0 zijn (kreeg {value}).")
+                raise SolidWorksError(f"{label} must be > 0 (got {value}).")
 
         plane = self._first_ref_plane()
         if plane is None:
-            raise SolidWorksError("Geen reference plane gevonden in de feature tree.")
+            raise SolidWorksError("No reference plane found in the feature tree.")
         if not plane.Select2(False, 0):
-            raise SolidWorksError("Kon de reference plane niet selecteren.")
+            raise SolidWorksError("Could not select the reference plane.")
 
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
         sk.InsertSketch(True)
@@ -423,7 +423,7 @@ class SolidWorksSession:
         sk.InsertSketch(True)  # close the sketch (it stays selected for the extrude)
         if not rect:
             # Fail at the true root cause (empty sketch) instead of later at the extrude.
-            raise SolidWorksError("Rechthoek-sketch mislukte: CreateCornerRectangle gaf geen segmenten.")
+            raise SolidWorksError("Rectangle sketch failed: CreateCornerRectangle returned no segments.")
 
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
         extrude = feat_mgr.FeatureExtrusion3(
@@ -443,7 +443,7 @@ class SolidWorksSession:
             False,                     # FlipStartOffset
         )
         if extrude is None:
-            raise SolidWorksError("FeatureExtrusion3 mislukte (None). Is de sketch geldig?")
+            raise SolidWorksError("FeatureExtrusion3 failed (None). Is the sketch valid?")
         result = self._finish_feature(extrude, name)
         result["depth_dimension"] = f"D1@{result['feature']}"
         return result
@@ -466,7 +466,7 @@ class SolidWorksSession:
             cleaned.pop()  # drop an explicit closing point
         if len(cleaned) < 3:
             raise SolidWorksError(
-                f"Profiel heeft minstens 3 verschillende punten nodig (kreeg {len(cleaned)})."
+                f"A profile needs at least 3 distinct points (got {len(cleaned)})."
             )
         return cleaned
 
@@ -486,11 +486,11 @@ class SolidWorksSession:
             if not clean or abs(q[0] - clean[-1][0]) > 1e-9 or abs(q[1] - clean[-1][1]) > 1e-9:
                 clean.append(q)
         if len(clean) < 2:
-            raise SolidWorksError(f"pad heeft minstens 2 verschillende punten nodig (kreeg {len(clean)}).")
+            raise SolidWorksError(f"A path needs at least 2 distinct points (got {len(clean)}).")
         if len(clean) == 2:
             return [("line", clean[0], clean[1])]
         if radius_mm <= 0:
-            raise SolidWorksError("bend_radius moet > 0 zijn voor een pad met hoeken.")
+            raise SolidWorksError("bend_radius must be > 0 for a path with corners.")
 
         # Pass 1: fillet geometry per interior corner that genuinely turns.
         corners = []
@@ -505,11 +505,11 @@ class SolidWorksSession:
                 continue  # collinear straight-through: no corner to round
             if theta < 1e-6:
                 raise SolidWorksError(
-                    f"pad keert terug op zichzelf bij punt {i}; een sweep-pad mag niet 180 graden terugvouwen."
+                    f"The path doubles back on itself at point {i}; a sweep path cannot fold back 180 degrees."
                 )
             setback = radius_mm / math.tan(theta / 2.0)
             if setback > la - 1e-9 or setback > lb - 1e-9:
-                raise SolidWorksError(f"bend_radius {radius_mm} te groot voor het segment bij punt {i}.")
+                raise SolidWorksError(f"bend_radius {radius_mm} is too large for the segment at point {i}.")
             t_in = (v[0] + ax * setback, v[1] + ay * setback)
             t_out = (v[0] + bx * setback, v[1] + by * setback)
             bisx, bisy = ax + bx, ay + by
@@ -527,8 +527,8 @@ class SolidWorksSession:
             shared = math.dist(clean[prev["i"]], clean[nxt["i"]])
             if prev["setback"] + nxt["setback"] > shared - 1e-9:
                 raise SolidWorksError(
-                    f"bend_radius {radius_mm} te groot: bochten bij punt {prev['i']} en {nxt['i']} "
-                    "overlappen op het tussensegment."
+                    f"bend_radius {radius_mm} is too large: the bends at points {prev['i']} and {nxt['i']} "
+                    "overlap on the segment between them."
                 )
 
         # Pass 3: emit segments, skipping any zero-length connecting line.
@@ -554,7 +554,7 @@ class SolidWorksSession:
             x1, y1 = pts_m[i]
             x2, y2 = pts_m[(i + 1) % n]
             if not sk.CreateLine(x1, y1, 0.0, x2, y2, 0.0):
-                raise SolidWorksError(f"Kon lijnsegment {i} niet maken.")
+                raise SolidWorksError(f"Could not create line segment {i}.")
 
     def _sketch_closed_polygon(self, sk, points_mm) -> None:
         """Open a sketch and draw a closed polygon from [x, y] points (mm).
@@ -578,8 +578,8 @@ class SolidWorksSession:
         sketch = binding.wrap(sk.ActiveSketch, self._mod.ISketch)
         if sketch is None:
             raise SolidWorksError(
-                f"Kon geen sketch openen op het {face}-vlak (InsertSketch gaf geen actieve sketch). "
-                "Stond er nog een sketch open van een eerdere mislukte bewerking?"
+                f"Could not open a sketch on the {face} face (InsertSketch gave no active sketch). "
+                "Was a sketch left open by an earlier failed operation?"
             )
         return sketch
 
@@ -587,10 +587,10 @@ class SolidWorksSession:
         """Select the outermost (default) or innermost planar face facing `normal`."""
         face = self._planar_face_by_normal(body, normal, side)
         if face is None:
-            raise SolidWorksError(f"Geen planair {label}-vlak gevonden.")
+            raise SolidWorksError(f"No planar {label} face found.")
         self._model.ClearSelection2(True)
         if not binding.wrap(face, self._mod.IEntity).Select4(False, None):
-            raise SolidWorksError(f"Kon het {label}-vlak niet selecteren.")
+            raise SolidWorksError(f"Could not select the {label} face.")
         return face
 
     def add_extruded_profile(self, points_mm: list, depth_mm: float,
@@ -605,15 +605,15 @@ class SolidWorksSession:
         """
         model = self._require_model()
         if depth_mm <= 0:
-            raise SolidWorksError(f"depth moet > 0 zijn (kreeg {depth_mm}).")
+            raise SolidWorksError(f"depth must be > 0 (got {depth_mm}).")
         if not points_mm:
-            raise SolidWorksError("Geen profielpunten opgegeven.")
+            raise SolidWorksError("No profile points given.")
 
         plane = self._first_ref_plane()
         if plane is None:
-            raise SolidWorksError("Geen reference plane gevonden in de feature tree.")
+            raise SolidWorksError("No reference plane found in the feature tree.")
         if not plane.Select2(False, 0):
-            raise SolidWorksError("Kon de reference plane niet selecteren.")
+            raise SolidWorksError("Could not select the reference plane.")
 
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
         self._sketch_closed_polygon(sk, points_mm)
@@ -629,7 +629,7 @@ class SolidWorksSession:
             SW_START_SKETCH_PLANE, 0.0, False,
         )
         if extrude is None:
-            raise SolidWorksError("FeatureExtrusion3 mislukte (None). Is het profiel gesloten en niet zelfsnijdend?")
+            raise SolidWorksError("FeatureExtrusion3 failed (None). Is the profile closed and not self-intersecting?")
         return self._finish_feature(extrude, name)
 
     def add_extruded_spline(self, points_mm: list, depth_mm: float,
@@ -645,14 +645,14 @@ class SolidWorksSession:
         """
         model = self._require_model()
         if depth_mm <= 0:
-            raise SolidWorksError(f"depth moet > 0 zijn (kreeg {depth_mm}).")
+            raise SolidWorksError(f"depth must be > 0 (got {depth_mm}).")
         pts = self._clean_polygon(points_mm)  # >= 3 distinct points
 
         plane = self._first_ref_plane()
         if plane is None:
-            raise SolidWorksError("Geen reference plane gevonden in de feature tree.")
+            raise SolidWorksError("No reference plane found in the feature tree.")
         if not plane.Select2(False, 0):
-            raise SolidWorksError("Kon de reference plane niet selecteren.")
+            raise SolidWorksError("Could not select the reference plane.")
 
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
         sk.InsertSketch(True)
@@ -664,7 +664,7 @@ class SolidWorksSession:
         model.ClearSelection2(True)
         sk.InsertSketch(True)  # close the sketch
         if not spline:
-            raise SolidWorksError("Spline-sketch mislukte: CreateSpline2 gaf niets terug.")
+            raise SolidWorksError("Spline sketch failed: CreateSpline2 returned nothing.")
 
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
         extrude = feat_mgr.FeatureExtrusion3(
@@ -677,7 +677,7 @@ class SolidWorksSession:
             SW_START_SKETCH_PLANE, 0.0, False,
         )
         if extrude is None:
-            raise SolidWorksError("FeatureExtrusion3 mislukte (None). Is de spline gesloten en niet zelfsnijdend?")
+            raise SolidWorksError("FeatureExtrusion3 failed (None). Is the spline closed and not self-intersecting?")
         return self._finish_feature(extrude, name)
 
     def add_disc(self, diameter_mm: float, thickness_mm: float, name: str = "Disc") -> dict:
@@ -690,13 +690,13 @@ class SolidWorksSession:
         """
         model = self._require_model()
         if diameter_mm <= 0 or thickness_mm <= 0:
-            raise SolidWorksError("diameter en thickness moeten > 0 zijn.")
+            raise SolidWorksError("diameter and thickness must be > 0.")
 
         plane = self._first_ref_plane()
         if plane is None:
-            raise SolidWorksError("Geen reference plane gevonden in de feature tree.")
+            raise SolidWorksError("No reference plane found in the feature tree.")
         if not plane.Select2(False, 0):
-            raise SolidWorksError("Kon de reference plane niet selecteren.")
+            raise SolidWorksError("Could not select the reference plane.")
 
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
         sk.InsertSketch(True)
@@ -704,7 +704,7 @@ class SolidWorksSession:
         model.ClearSelection2(True)
         sk.InsertSketch(True)
         if not circle:
-            raise SolidWorksError("Cirkel-sketch mislukte: CreateCircleByRadius gaf niets terug.")
+            raise SolidWorksError("Circle sketch failed: CreateCircleByRadius returned nothing.")
 
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
         extrude = feat_mgr.FeatureExtrusion3(
@@ -717,7 +717,7 @@ class SolidWorksSession:
             SW_START_SKETCH_PLANE, 0.0, False,
         )
         if extrude is None:
-            raise SolidWorksError("FeatureExtrusion3 mislukte (None).")
+            raise SolidWorksError("FeatureExtrusion3 failed (None).")
         return self._finish_feature(extrude, name)
 
     def add_cylinder(self, diameter_mm: float, height_mm: float, name: str = "Revolve") -> dict:
@@ -732,13 +732,13 @@ class SolidWorksSession:
         model = self._require_model()
         for value, label in ((diameter_mm, "diameter"), (height_mm, "height")):
             if value <= 0:
-                raise SolidWorksError(f"{label} moet > 0 zijn (kreeg {value}).")
+                raise SolidWorksError(f"{label} must be > 0 (got {value}).")
 
         plane = self._first_ref_plane()
         if plane is None:
-            raise SolidWorksError("Geen reference plane gevonden in de feature tree.")
+            raise SolidWorksError("No reference plane found in the feature tree.")
         if not plane.Select2(False, 0):
-            raise SolidWorksError("Kon de reference plane niet selecteren.")
+            raise SolidWorksError("Could not select the reference plane.")
 
         radius = mm_to_m(diameter_mm / 2.0)
         height = mm_to_m(height_mm)
@@ -759,7 +759,7 @@ class SolidWorksSession:
             True, True, True,            # Merge, UseFeatScope, UseAutoSelect
         )
         if revolve is None:
-            raise SolidWorksError("FeatureRevolve2 mislukte (None). Is het profiel geldig?")
+            raise SolidWorksError("FeatureRevolve2 failed (None). Is the profile valid?")
         return self._finish_feature(revolve, name)
 
     def add_cone(self, bottom_diameter_mm: float, top_diameter_mm: float,
@@ -772,17 +772,17 @@ class SolidWorksSession:
         """
         model = self._require_model()
         if bottom_diameter_mm <= 0 or height_mm <= 0:
-            raise SolidWorksError("bottom_diameter en height moeten > 0 zijn.")
+            raise SolidWorksError("bottom_diameter and height must be > 0.")
         if top_diameter_mm < 0:
-            raise SolidWorksError("top_diameter mag niet negatief zijn.")
+            raise SolidWorksError("top_diameter cannot be negative.")
         if top_diameter_mm >= bottom_diameter_mm:
-            raise SolidWorksError("top_diameter moet kleiner zijn dan bottom_diameter (anders: add_cylinder).")
+            raise SolidWorksError("top_diameter must be smaller than bottom_diameter (otherwise use add_cylinder).")
 
         plane = self._first_ref_plane()
         if plane is None:
-            raise SolidWorksError("Geen reference plane gevonden in de feature tree.")
+            raise SolidWorksError("No reference plane found in the feature tree.")
         if not plane.Select2(False, 0):
-            raise SolidWorksError("Kon de reference plane niet selecteren.")
+            raise SolidWorksError("Could not select the reference plane.")
 
         rb = mm_to_m(bottom_diameter_mm / 2.0)
         rt = mm_to_m(top_diameter_mm / 2.0)
@@ -804,7 +804,7 @@ class SolidWorksSession:
             False, False, 0.0, 0.0, 0, 0.0, 0.0, True, True, True,
         )
         if revolve is None:
-            raise SolidWorksError("FeatureRevolve2 mislukte (None). Is het profiel gesloten?")
+            raise SolidWorksError("FeatureRevolve2 failed (None). Is the profile closed?")
         return self._finish_feature(revolve, name)
 
     def add_revolved_profile(self, profile_mm: list, angle_deg: float = 360.0,
@@ -820,17 +820,17 @@ class SolidWorksSession:
         model = self._require_model()
         pts = self._clean_polygon(profile_mm)
         if any(r < -1e-9 for r, _ in pts):
-            raise SolidWorksError("radius (eerste coord) mag niet negatief zijn -- het profiel mag de as niet kruisen.")
+            raise SolidWorksError("radius (first coordinate) cannot be negative -- the profile may not cross the axis.")
         if all(abs(r) < 1e-9 for r, _ in pts):
-            raise SolidWorksError("profiel ligt volledig op de as (alle radii 0).")
+            raise SolidWorksError("The profile lies entirely on the axis (all radii are 0).")
         if not 0.0 < angle_deg <= 360.0:
-            raise SolidWorksError(f"angle moet in (0, 360] liggen (kreeg {angle_deg}).")
+            raise SolidWorksError(f"angle must be in (0, 360] (got {angle_deg}).")
 
         plane = self._first_ref_plane()
         if plane is None:
-            raise SolidWorksError("Geen reference plane gevonden in de feature tree.")
+            raise SolidWorksError("No reference plane found in the feature tree.")
         if not plane.Select2(False, 0):
-            raise SolidWorksError("Kon de reference plane niet selecteren.")
+            raise SolidWorksError("Could not select the reference plane.")
 
         z_vals = [z for _, z in pts]
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
@@ -846,7 +846,7 @@ class SolidWorksSession:
             False, False, 0.0, 0.0, 0, 0.0, 0.0, True, True, True,
         )
         if revolve is None:
-            raise SolidWorksError("FeatureRevolve2 mislukte (None). Is het profiel gesloten en geldig?")
+            raise SolidWorksError("FeatureRevolve2 failed (None). Is the profile closed and valid?")
         return self._finish_feature(revolve, name)
 
     def _draw_path_on_front(self, model, path_mm, bend_radius_mm) -> str:
@@ -860,9 +860,9 @@ class SolidWorksSession:
         segs = self._round_polyline(path_mm, bend_radius_mm)
         plane = self._first_ref_plane()
         if plane is None:
-            raise SolidWorksError("Geen reference plane gevonden in de feature tree.")
+            raise SolidWorksError("No reference plane found in the feature tree.")
         if not plane.Select2(False, 0):
-            raise SolidWorksError("Kon de reference plane niet selecteren.")
+            raise SolidWorksError("Could not select the reference plane.")
 
         before = self._profile_feature_names()
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
@@ -871,19 +871,19 @@ class SolidWorksSession:
             if s[0] == "line":
                 (x1, y1), (x2, y2) = s[1], s[2]
                 if not sk.CreateLine(mm_to_m(x1), mm_to_m(y1), 0.0, mm_to_m(x2), mm_to_m(y2), 0.0):
-                    raise SolidWorksError("Kon een padlijn niet maken.")
+                    raise SolidWorksError("Could not create a path line.")
             else:
                 _, c, p1, p2, direction = s
                 if sk.CreateArc(mm_to_m(c[0]), mm_to_m(c[1]), 0.0,
                                 mm_to_m(p1[0]), mm_to_m(p1[1]), 0.0,
                                 mm_to_m(p2[0]), mm_to_m(p2[1]), 0.0, direction) is None:
-                    raise SolidWorksError("Kon een padboog niet maken.")
+                    raise SolidWorksError("Could not create a path arc.")
         sk.InsertSketch(True)  # close the path sketch
 
         new_names = self._profile_feature_names() - before
         if len(new_names) != 1:
             raise SolidWorksError(
-                f"Kon het zojuist getekende pad niet identificeren (verwachtte 1 nieuwe sketch, vond {len(new_names)})."
+                f"Could not identify the path just drawn (expected 1 new sketch, found {len(new_names)})."
             )
         return new_names.pop()
 
@@ -899,13 +899,13 @@ class SolidWorksSession:
         """
         model = self._require_model()
         if diameter_mm <= 0:
-            raise SolidWorksError(f"diameter moet > 0 zijn (kreeg {diameter_mm}).")
+            raise SolidWorksError(f"diameter must be > 0 (got {diameter_mm}).")
 
         path_name = self._draw_path_on_front(model, path_mm, bend_radius_mm)
         model.ClearSelection2(True)
         ext = binding.wrap(model.Extension, self._mod.IModelDocExtension)
         if not ext.SelectByID2(path_name, "SKETCH", 0.0, 0.0, 0.0, False, 4, None, 0):  # mark 4 = sweep path
-            raise SolidWorksError(f"Kon het pad '{path_name}' niet selecteren.")
+            raise SolidWorksError(f"Could not select the path '{path_name}'.")
 
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
         pipe = feat_mgr.InsertProtrusionSwept4(
@@ -929,8 +929,8 @@ class SolidWorksSession:
         )
         if pipe is None:
             raise SolidWorksError(
-                "InsertProtrusionSwept4 mislukte (None). Is het pad geldig "
-                "(geen overlappende bochten, radius past)?"
+                "InsertProtrusionSwept4 failed (None). Is the path valid "
+                "(no overlapping bends, radius fits)?"
             )
         return self._finish_feature(pipe, name)
 
@@ -943,16 +943,16 @@ class SolidWorksSession:
         """
         raw = [(float(x), float(y)) for x, y in path_mm]
         if len(raw) < 2:
-            raise SolidWorksError("path heeft minstens 2 punten nodig.")
+            raise SolidWorksError("path needs at least 2 points.")
         p0 = raw[0]
         p1 = next((p for p in raw[1:] if abs(p[0] - p0[0]) > 1e-9 or abs(p[1] - p0[1]) > 1e-9), None)
         if p1 is None:
-            raise SolidWorksError("path heeft minstens 2 verschillende punten nodig.")
+            raise SolidWorksError("path needs at least 2 distinct points.")
         if math.hypot(p0[0], p0[1]) > 1e-6:
-            raise SolidWorksError("path moet bij de oorsprong (0,0) beginnen.")
+            raise SolidWorksError("path must start at the origin (0,0).")
         dx, dy = p1[0] - p0[0], p1[1] - p0[1]
         if dx / math.hypot(dx, dy) < 1.0 - 1e-6:  # start tangent not +X
-            raise SolidWorksError("path moet bij de start langs +X lopen (eerste segment richting +X).")
+            raise SolidWorksError("path must start along +X (first segment pointing +X).")
 
     def add_swept_profile(self, profile_mm: list, path_mm: list,
                           bend_radius_mm: float = 0.0, name: str = "Sweep") -> dict:
@@ -972,12 +972,12 @@ class SolidWorksSession:
 
         planes = self._ref_planes()
         if len(planes) < 3:
-            raise SolidWorksError("Geen Right-vlak gevonden (verwacht Front/Top/Right).")
+            raise SolidWorksError("No Right plane found (expected Front/Top/Right).")
         right = planes[2]  # tree order: Front, Top, Right
 
         # profile (cross-section) on the Right plane, perpendicular to the +X start
         if not right.Select2(False, 0):
-            raise SolidWorksError("Kon het Right-vlak niet selecteren.")
+            raise SolidWorksError("Could not select the Right plane.")
         before = self._profile_feature_names()
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
         sk.InsertSketch(True)
@@ -986,7 +986,7 @@ class SolidWorksSession:
         sk.InsertSketch(True)
         profile_names = self._profile_feature_names() - before
         if len(profile_names) != 1:
-            raise SolidWorksError("Kon het profiel niet identificeren na het tekenen.")
+            raise SolidWorksError("Could not identify the profile after drawing it.")
         profile_name = profile_names.pop()
 
         # path on the Front plane (reuses the rounded-polyline path builder)
@@ -995,9 +995,9 @@ class SolidWorksSession:
         model.ClearSelection2(True)
         ext = binding.wrap(model.Extension, self._mod.IModelDocExtension)
         if not ext.SelectByID2(profile_name, "SKETCH", 0.0, 0.0, 0.0, False, 1, None, 0):  # mark 1 = profile
-            raise SolidWorksError(f"Kon het profiel '{profile_name}' niet selecteren.")
+            raise SolidWorksError(f"Could not select the profile '{profile_name}'.")
         if not ext.SelectByID2(path_name, "SKETCH", 0.0, 0.0, 0.0, True, 4, None, 0):  # mark 4 = path
-            raise SolidWorksError(f"Kon het pad '{path_name}' niet selecteren.")
+            raise SolidWorksError(f"Could not select the path '{path_name}'.")
 
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
         sweep = feat_mgr.InsertProtrusionSwept4(
@@ -1021,8 +1021,8 @@ class SolidWorksSession:
         )
         if sweep is None:
             raise SolidWorksError(
-                "InsertProtrusionSwept4 mislukte (None). Ligt het profiel op het Right-vlak "
-                "en start het pad bij de oorsprong langs +X?"
+                "InsertProtrusionSwept4 failed (None). Is the profile on the Right plane "
+                "and does the path start at the origin along +X?"
             )
         return self._finish_feature(sweep, name)
 
@@ -1040,19 +1040,19 @@ class SolidWorksSession:
         """
         model = self._require_model()
         if len(profiles_mm) != len(heights_mm):
-            raise SolidWorksError("profiles_mm en heights_mm moeten even lang zijn.")
+            raise SolidWorksError("profiles_mm and heights_mm must have the same length.")
         if len(profiles_mm) < 2:
-            raise SolidWorksError("loft heeft minstens 2 profielen nodig.")
+            raise SolidWorksError("A loft needs at least 2 profiles.")
         if heights_mm[0] != 0:
-            raise SolidWorksError("heights_mm[0] moet 0 zijn (eerste profiel op de Front plane).")
+            raise SolidWorksError("heights_mm[0] must be 0 (the first profile sits on the Front plane).")
         for lo, hi in zip(heights_mm, heights_mm[1:]):
             if hi <= lo:
-                raise SolidWorksError("heights_mm moet strikt oplopend zijn.")
+                raise SolidWorksError("heights_mm must be strictly increasing.")
         cleaned = [self._clean_polygon(p) for p in profiles_mm]  # validates >= 3 distinct pts
 
         base = self._first_ref_plane()
         if base is None:
-            raise SolidWorksError("Geen reference plane gevonden in de feature tree.")
+            raise SolidWorksError("No reference plane found in the feature tree.")
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
 
@@ -1060,15 +1060,15 @@ class SolidWorksSession:
         helper_planes = []
         for poly, height in zip(cleaned, heights_mm):
             if not base.Select2(False, 0):
-                raise SolidWorksError("Kon de Front plane niet selecteren.")
+                raise SolidWorksError("Could not select the Front plane.")
             if height != 0:
                 if feat_mgr.InsertRefPlane(SW_REF_PLANE_DISTANCE, mm_to_m(height), 0, 0.0, 0, 0.0) is None:
-                    raise SolidWorksError(f"Kon geen offsetvlak maken op z={height}.")
+                    raise SolidWorksError(f"Could not create an offset plane at z={height}.")
                 # InsertRefPlane's return is a generic dispatch without Select2; take
                 # the new plane from the tree instead.
                 plane = self._last_ref_plane()
                 if plane is None or not plane.Select2(False, 0):
-                    raise SolidWorksError(f"Kon het offsetvlak op z={height} niet selecteren.")
+                    raise SolidWorksError(f"Could not select the offset plane at z={height}.")
                 helper_planes.append(plane)
             before = self._profile_feature_names()
             sk.InsertSketch(True)
@@ -1076,14 +1076,14 @@ class SolidWorksSession:
             sk.InsertSketch(True)
             new_names = self._profile_feature_names() - before
             if len(new_names) != 1:
-                raise SolidWorksError(f"Kon het profiel op z={height} niet identificeren.")
+                raise SolidWorksError(f"Could not identify the profile at z={height}.")
             sketch_names.append(new_names.pop())
 
         model.ClearSelection2(True)
         ext = binding.wrap(model.Extension, self._mod.IModelDocExtension)
         for sketch_name in sketch_names:
             if not ext.SelectByID2(sketch_name, "SKETCH", 0.0, 0.0, 0.0, True, 1, None, 0):  # mark 1, append
-                raise SolidWorksError(f"Kon profiel '{sketch_name}' niet selecteren.")
+                raise SolidWorksError(f"Could not select profile '{sketch_name}'.")
 
         loft = feat_mgr.InsertProtrusionBlend(
             False,        # Closed
@@ -1101,7 +1101,7 @@ class SolidWorksSession:
         )
         if loft is None:
             raise SolidWorksError(
-                "InsertProtrusionBlend mislukte (None). Liggen de profielen geldig gestapeld?"
+                "InsertProtrusionBlend failed (None). Are the profiles stacked validly?"
             )
         # The offset planes are construction geometry; hide them so they don't
         # clutter screenshots.
@@ -1121,11 +1121,11 @@ class SolidWorksSession:
         dx, dy = end[0] - start[0], end[1] - start[1]
         length = math.hypot(dx, dy)
         if length < 1e-9:
-            raise SolidWorksError("De rib-lijn heeft lengte 0: start en eind vallen samen.")
+            raise SolidWorksError("The rib line has zero length: start and end coincide.")
         side = dx * (toward[1] - start[1]) - dy * (toward[0] - start[0])  # > 0: left
         if abs(side) / length < 1e-6:
             raise SolidWorksError(
-                "toward_mm ligt op de rib-lijn; kies een punt aan de kant die gevuld moet worden."
+                "toward_mm lies on the rib line; pick a point on the side to fill."
             )
         return side > 0
 
@@ -1141,22 +1141,22 @@ class SolidWorksSession:
         """
         model = self._require_model()
         if thickness_mm <= 0:
-            raise SolidWorksError(f"thickness_mm moet > 0 zijn (kreeg {thickness_mm}).")
+            raise SolidWorksError(f"thickness_mm must be > 0 (got {thickness_mm}).")
         if z_mm < 0:
-            raise SolidWorksError(f"z_mm moet >= 0 zijn (kreeg {z_mm}); vlakken liggen vanaf de Front plane naar +Z.")
+            raise SolidWorksError(f"z_mm must be >= 0 (got {z_mm}); planes are offset from the Front plane toward +Z.")
         reverse = self._rib_material_reversed(start_mm, end_mm, toward_mm)
 
         base = self._first_ref_plane()
         if base is None or not base.Select2(False, 0):
-            raise SolidWorksError("Kon de Front plane niet selecteren.")
+            raise SolidWorksError("Could not select the Front plane.")
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
         helper_plane = None
         if z_mm != 0:
             if feat_mgr.InsertRefPlane(SW_REF_PLANE_DISTANCE, mm_to_m(z_mm), 0, 0.0, 0, 0.0) is None:
-                raise SolidWorksError(f"Kon geen vlak maken op z={z_mm}.")
+                raise SolidWorksError(f"Could not create a plane at z={z_mm}.")
             helper_plane = self._last_ref_plane()
             if helper_plane is None or not helper_plane.Select2(False, 0):
-                raise SolidWorksError(f"Kon het vlak op z={z_mm} niet selecteren.")
+                raise SolidWorksError(f"Could not select the plane at z={z_mm}.")
         try:
             sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
             sk.InsertSketch(True)
@@ -1165,7 +1165,7 @@ class SolidWorksSession:
             model.ClearSelection2(True)
             sk.InsertSketch(True)  # close the sketch; it stays selected for the rib
             if not line:
-                raise SolidWorksError("Kon de rib-lijn niet schetsen.")
+                raise SolidWorksError("Could not sketch the rib line.")
             before = {f.Name for f in self._iter_features()}
             # InsertRib returns nothing, so the new feature is taken from the tree.
             feat_mgr.InsertRib(True, False, mm_to_m(thickness_mm), 0, reverse,
@@ -1178,8 +1178,8 @@ class SolidWorksSession:
             model.ClearSelection2(True)
         if rib is None:
             raise SolidWorksError(
-                "Rib niet aangemaakt: aan de kant van toward_mm raakt de rib geen materiaal. "
-                "Kies toward_mm aan de kant waar het onderdeel ligt (bv. de binnenhoek)."
+                "Rib not created: on the toward_mm side the rib meets no material. "
+                "Pick toward_mm on the side where the part is (e.g. the inner corner)."
             )
         return self._finish_feature(rib, name)
 
@@ -1200,7 +1200,7 @@ class SolidWorksSession:
             mm_to_m(x_mm), mm_to_m(y_mm), 0.0, mm_to_m(diameter_mm / 2.0))
         sk.InsertSketch(True)  # close the sketch
         if not circle:
-            raise SolidWorksError("Cirkel-sketch mislukte: CreateCircleByRadius gaf niets terug.")
+            raise SolidWorksError("Circle sketch failed: CreateCircleByRadius returned nothing.")
 
         t1 = SW_END_COND_THROUGH_ALL if through else SW_END_COND_BLIND
         d1 = 0.0 if through else mm_to_m(depth_mm)
@@ -1238,11 +1238,11 @@ class SolidWorksSession:
         """
         model = self._require_model()
         if diameter_mm <= 0:
-            raise SolidWorksError(f"diameter moet > 0 zijn (kreeg {diameter_mm}).")
+            raise SolidWorksError(f"diameter must be > 0 (got {diameter_mm}).")
         cut = self._cut_circle_on_z(model, diameter_mm, x_mm, y_mm, through=True)
         if cut is None:
             raise SolidWorksError(
-                "FeatureCut4 mislukte (None). Ligt (x, y) binnen het materiaal van het part?"
+                "FeatureCut4 failed (None). Is (x, y) inside the part's material?"
             )
         return self._finish_feature(cut, name)
 
@@ -1259,23 +1259,23 @@ class SolidWorksSession:
         """
         model = self._require_model()
         if clearance_diameter_mm <= 0 or cbore_diameter_mm <= 0:
-            raise SolidWorksError("diameters moeten > 0 zijn.")
+            raise SolidWorksError("diameters must be > 0.")
         if cbore_diameter_mm <= clearance_diameter_mm:
-            raise SolidWorksError("cbore_diameter moet groter zijn dan clearance_diameter.")
+            raise SolidWorksError("cbore_diameter must be larger than clearance_diameter.")
         if cbore_depth_mm <= 0:
-            raise SolidWorksError(f"cbore_depth moet > 0 zijn (kreeg {cbore_depth_mm}).")
+            raise SolidWorksError(f"cbore_depth must be > 0 (got {cbore_depth_mm}).")
 
         # Through clearance shank first (clean +Z face), then the blind pocket: the
         # pocket removes the annular ring around the already-cut shank.
         shank = self._cut_circle_on_z(model, clearance_diameter_mm, x_mm, y_mm, through=True)
         if shank is None:
             raise SolidWorksError(
-                "Clearance-gat (FeatureCut4) mislukte (None). Ligt (x, y) binnen het materiaal?"
+                "Clearance hole (FeatureCut4) failed (None). Is (x, y) inside the material?"
             )
         cbore = self._cut_circle_on_z(model, cbore_diameter_mm, x_mm, y_mm,
                                       through=False, depth_mm=cbore_depth_mm)
         if cbore is None:
-            raise SolidWorksError("Counterbore-pocket (FeatureCut4) mislukte (None).")
+            raise SolidWorksError("Counterbore pocket (FeatureCut4) failed (None).")
         return self._finish_feature(cbore, name)
 
     # A point given to add_hole_on_face / cut_profile_on_face must LIE on the
@@ -1306,9 +1306,9 @@ class SolidWorksSession:
         off_mm = m_to_mm(local[2])
         if abs(off_mm) > self._ON_FACE_TOLERANCE_MM:
             raise SolidWorksError(
-                f"Punt ({m_to_mm(x_m):g}, {m_to_mm(y_m):g}, {m_to_mm(z_m):g}) mm ligt niet "
-                f"op het {face}-vlak: het staat {off_mm:.3f} mm buiten het vlak. Geef een "
-                f"punt op het vlak (loodrechte afstand moet ~0 zijn)."
+                f"Point ({m_to_mm(x_m):g}, {m_to_mm(y_m):g}, {m_to_mm(z_m):g}) mm is not "
+                f"on the {face} face: it is {off_mm:.3f} mm off the face. Give a "
+                f"point on the face (the perpendicular distance must be ~0)."
             )
         return local[0], local[1]
 
@@ -1324,7 +1324,7 @@ class SolidWorksSession:
         """
         model = self._require_model()
         if diameter_mm <= 0:
-            raise SolidWorksError(f"diameter moet > 0 zijn (kreeg {diameter_mm}).")
+            raise SolidWorksError(f"diameter must be > 0 (got {diameter_mm}).")
 
         body = self._solid_body()
         normal, side = self._parse_face_selector(face)
@@ -1338,7 +1338,7 @@ class SolidWorksSession:
         finally:
             sk.InsertSketch(True)  # close the sketch, also when the point is rejected
         if not circle:
-            raise SolidWorksError("Cirkel-sketch mislukte: CreateCircleByRadius gaf niets terug.")
+            raise SolidWorksError("Circle sketch failed: CreateCircleByRadius returned nothing.")
 
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
         cut = feat_mgr.FeatureCut4(
@@ -1349,7 +1349,7 @@ class SolidWorksSession:
         )
         if cut is None:
             raise SolidWorksError(
-                f"FeatureCut4 mislukte (None). Ligt ({x_mm}, {y_mm}, {z_mm}) op het {face}-vlak?"
+                f"FeatureCut4 failed (None). Is ({x_mm}, {y_mm}, {z_mm}) on the {face} face?"
             )
         return self._finish_feature(cut, name)
 
@@ -1363,7 +1363,7 @@ class SolidWorksSession:
         """
         model = self._require_model()
         if not points_mm:
-            raise SolidWorksError("Geen profielpunten opgegeven.")
+            raise SolidWorksError("No profile points given.")
 
         body = self._solid_body()
         self._select_planar_face(body, (0.0, 0.0, 1.0), "+Z")
@@ -1374,7 +1374,7 @@ class SolidWorksSession:
             t1, d1 = SW_END_COND_THROUGH_ALL, 0.0
         else:
             if depth_mm <= 0:
-                raise SolidWorksError(f"depth moet > 0 zijn (kreeg {depth_mm}).")
+                raise SolidWorksError(f"depth must be > 0 (got {depth_mm}).")
             t1, d1 = SW_END_COND_BLIND, mm_to_m(depth_mm)
 
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
@@ -1386,7 +1386,7 @@ class SolidWorksSession:
             SW_START_SKETCH_PLANE, 0.0, False, False,
         )
         if cut is None:
-            raise SolidWorksError("FeatureCut4 mislukte (None). Ligt het profiel op het +Z-vlak?")
+            raise SolidWorksError("FeatureCut4 failed (None). Is the profile on the +Z face?")
         return self._finish_feature(cut, name)
 
     def cut_profile_on_face(self, points_mm: list, face: str,
@@ -1400,7 +1400,7 @@ class SolidWorksSession:
         """
         model = self._require_model()
         if not points_mm:
-            raise SolidWorksError("Geen profielpunten opgegeven.")
+            raise SolidWorksError("No profile points given.")
 
         body = self._solid_body()
         normal, side = self._parse_face_selector(face)
@@ -1420,7 +1420,7 @@ class SolidWorksSession:
             t1, d1 = SW_END_COND_THROUGH_ALL, 0.0
         else:
             if depth_mm <= 0:
-                raise SolidWorksError(f"depth moet > 0 zijn (kreeg {depth_mm}).")
+                raise SolidWorksError(f"depth must be > 0 (got {depth_mm}).")
             t1, d1 = SW_END_COND_BLIND, mm_to_m(depth_mm)
 
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
@@ -1432,7 +1432,7 @@ class SolidWorksSession:
             SW_START_SKETCH_PLANE, 0.0, False, False,
         )
         if cut is None:
-            raise SolidWorksError(f"FeatureCut4 mislukte (None). Liggen de punten op het {face}-vlak?")
+            raise SolidWorksError(f"FeatureCut4 failed (None). Are the points on the {face} face?")
         return self._finish_feature(cut, name)
 
     def cut_slot(self, length_mm: float, width_mm: float, x_mm: float, y_mm: float,
@@ -1445,7 +1445,7 @@ class SolidWorksSession:
         """
         model = self._require_model()
         if length_mm <= 0 or width_mm <= 0:
-            raise SolidWorksError("length en width moeten > 0 zijn.")
+            raise SolidWorksError("length and width must be > 0.")
 
         rad = deg_to_rad(angle_deg)
         ax, ay = math.cos(rad), math.sin(rad)      # slot axis direction
@@ -1469,13 +1469,13 @@ class SolidWorksSession:
         model.ClearSelection2(True)
         sk.InsertSketch(True)
         if not seg:
-            raise SolidWorksError("Slot-sketch mislukte: CreateSketchSlot gaf niets terug.")
+            raise SolidWorksError("Slot sketch failed: CreateSketchSlot returned nothing.")
 
         if depth_mm is None:
             t1, d1 = SW_END_COND_THROUGH_ALL, 0.0
         else:
             if depth_mm <= 0:
-                raise SolidWorksError(f"depth moet > 0 zijn (kreeg {depth_mm}).")
+                raise SolidWorksError(f"depth must be > 0 (got {depth_mm}).")
             t1, d1 = SW_END_COND_BLIND, mm_to_m(depth_mm)
 
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
@@ -1487,7 +1487,7 @@ class SolidWorksSession:
             SW_START_SKETCH_PLANE, 0.0, False, False,
         )
         if cut is None:
-            raise SolidWorksError("FeatureCut4 mislukte (None). Past de sleuf op het +Z-vlak?")
+            raise SolidWorksError("FeatureCut4 failed (None). Does the slot fit on the +Z face?")
         return self._finish_feature(cut, name)
 
     def add_fillet(self, radius_mm: float, edges: str = "all", name: str = "Fillet") -> dict:
@@ -1500,12 +1500,12 @@ class SolidWorksSession:
         """
         model = self._require_model()
         if radius_mm <= 0:
-            raise SolidWorksError(f"radius moet > 0 zijn (kreeg {radius_mm}).")
+            raise SolidWorksError(f"radius must be > 0 (got {radius_mm}).")
 
         body = self._solid_body()
         edge_count = self._select_edges(body, edges)
         if edge_count == 0:
-            raise SolidWorksError(f"Geen randen gevonden voor selector '{edges}'.")
+            raise SolidWorksError(f"No edges found for selector '{edges}'.")
 
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
         fillet = feat_mgr.FeatureFillet3(
@@ -1519,7 +1519,7 @@ class SolidWorksSession:
         )
         if fillet is None:
             raise SolidWorksError(
-                "FeatureFillet3 mislukte (None). Is de radius te groot voor de geometrie?"
+                "FeatureFillet3 failed (None). Is the radius too large for the geometry?"
             )
         return self._finish_feature(fillet, name, edges_filleted=edge_count)
 
@@ -1532,12 +1532,12 @@ class SolidWorksSession:
         """
         model = self._require_model()
         if distance_mm <= 0:
-            raise SolidWorksError(f"distance moet > 0 zijn (kreeg {distance_mm}).")
+            raise SolidWorksError(f"distance must be > 0 (got {distance_mm}).")
 
         body = self._solid_body()
         edge_count = self._select_edges(body, edges)
         if edge_count == 0:
-            raise SolidWorksError(f"Geen randen gevonden voor selector '{edges}'.")
+            raise SolidWorksError(f"No edges found for selector '{edges}'.")
 
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
         chamfer = feat_mgr.InsertFeatureChamfer(
@@ -1550,7 +1550,7 @@ class SolidWorksSession:
         )
         if chamfer is None:
             raise SolidWorksError(
-                "InsertFeatureChamfer mislukte (None). Is de afstand te groot voor de geometrie?"
+                "InsertFeatureChamfer failed (None). Is the distance too large for the geometry?"
             )
         return self._finish_feature(chamfer, name, edges_chamfered=edge_count)
 
@@ -1564,7 +1564,7 @@ class SolidWorksSession:
         """
         model = self._require_model()
         if thickness_mm <= 0:
-            raise SolidWorksError(f"thickness moet > 0 zijn (kreeg {thickness_mm}).")
+            raise SolidWorksError(f"thickness must be > 0 (got {thickness_mm}).")
 
         body = self._solid_body()
         opened = (open_face or "none").lower()
@@ -1579,7 +1579,7 @@ class SolidWorksSession:
         rebuilt_ok = bool(model.ForceRebuild3(False))
         props = self.get_mass_properties()["mass_properties"]
         if abs(props["volume_mm3"]) < 1e-6:
-            raise SolidWorksError("Shell verwijderde al het materiaal; is de wanddikte te groot?")
+            raise SolidWorksError("The shell removed all material; is the wall too thick?")
         return {"ok": True, "open_face": opened, "rebuild_ok": rebuilt_ok, "mass_properties": props}
 
     def _first_edge_along(self, body, direction):
@@ -1679,7 +1679,7 @@ class SolidWorksSession:
             feat = binding.wrap(feat.GetNextFeature(), self._mod.IFeature)
         if seed is None:
             raise SolidWorksError(
-                "Geen patroonbaar feature gevonden; geef feature_name expliciet op."
+                "No patternable feature found; pass feature_name explicitly."
             )
         return seed.Name
 
@@ -1694,15 +1694,15 @@ class SolidWorksSession:
         """
         model = self._require_model()
         if count < 2:
-            raise SolidWorksError(f"count moet >= 2 zijn (kreeg {count}).")
+            raise SolidWorksError(f"count must be >= 2 (got {count}).")
         if spacing_mm <= 0:
-            raise SolidWorksError(f"spacing moet > 0 zijn (kreeg {spacing_mm}).")
+            raise SolidWorksError(f"spacing must be > 0 (got {spacing_mm}).")
 
         dvec = self._parse_direction(direction)
         body = self._solid_body()
         p1, p2, edge_dispatch = self._first_edge_along(body, dvec)
         if p1 is None:
-            raise SolidWorksError(f"Geen rechte rand evenwijdig aan {direction} gevonden.")
+            raise SolidWorksError(f"No straight edge parallel to {direction} found.")
         along = (p2[0] - p1[0]) * dvec[0] + (p2[1] - p1[1]) * dvec[1] + (p2[2] - p1[2]) * dvec[2]
         flip = along < 0  # pattern follows the edge's p1->p2 dir; flip to match `direction`
 
@@ -1712,16 +1712,16 @@ class SolidWorksSession:
         select_data = binding.wrap(selmgr.CreateSelectData(), self._mod.ISelectData)
         select_data.Mark = 1
         if not binding.wrap(edge_dispatch, self._mod.IEntity).Select4(False, select_data):
-            raise SolidWorksError("Kon de richting-rand niet selecteren.")
+            raise SolidWorksError("Could not select the direction edge.")
         ext = binding.wrap(model.Extension, self._mod.IModelDocExtension)
         if not ext.SelectByID2(seed, "BODYFEATURE", 0.0, 0.0, 0.0, True, 4, None, 0):
-            raise SolidWorksError(f"Kon de seed-feature '{seed}' niet selecteren.")
+            raise SolidWorksError(f"Could not select the seed feature '{seed}'.")
 
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
         pattern = feat_mgr.FeatureLinearPattern(count, mm_to_m(spacing_mm), 1, 0.0,
                                                 flip, False, "", "")
         if pattern is None:
-            raise SolidWorksError("FeatureLinearPattern mislukte (None). Passen alle instances op het part?")
+            raise SolidWorksError("FeatureLinearPattern failed (None). Do all instances fit on the part?")
         return self._finish_feature(pattern, "LinearPattern", instances=count,
                                     seed=seed, direction=direction)
 
@@ -1772,14 +1772,14 @@ class SolidWorksSession:
         """
         model = self._require_model()
         if count < 2:
-            raise SolidWorksError(f"count moet >= 2 zijn (kreeg {count}).")
+            raise SolidWorksError(f"count must be >= 2 (got {count}).")
 
         body = self._solid_body()
         face = self._cylindrical_face_near(body, center_x_mm, center_y_mm)
         if face is None:
             raise SolidWorksError(
-                f"Geen cilindrisch vlak bij ({center_x_mm}, {center_y_mm}) gevonden voor de as. "
-                "Boor daar eerst een centraal gat."
+                f"No cylindrical face found at ({center_x_mm}, {center_y_mm}) to use as the axis. "
+                "Drill a centre hole there first."
             )
         seed = feature_name or self._last_feature_name()
         selmgr = binding.wrap(model.SelectionManager, self._mod.ISelectionMgr)
@@ -1787,15 +1787,15 @@ class SolidWorksSession:
         select_data = binding.wrap(selmgr.CreateSelectData(), self._mod.ISelectData)
         select_data.Mark = 1
         if not binding.wrap(face, self._mod.IEntity).Select4(True, select_data):
-            raise SolidWorksError("Kon het as-vlak niet selecteren.")
+            raise SolidWorksError("Could not select the axis face.")
         ext = binding.wrap(model.Extension, self._mod.IModelDocExtension)
         if not ext.SelectByID2(seed, "BODYFEATURE", 0.0, 0.0, 0.0, True, 4, None, 0):
-            raise SolidWorksError(f"Kon de seed-feature '{seed}' niet selecteren.")
+            raise SolidWorksError(f"Could not select the seed feature '{seed}'.")
 
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
         pattern = feat_mgr.FeatureCircularPattern(count, deg_to_rad(360.0) / count, False, "")
         if pattern is None:
-            raise SolidWorksError("FeatureCircularPattern mislukte (None).")
+            raise SolidWorksError("FeatureCircularPattern failed (None).")
         return self._finish_feature(pattern, "CircularPattern", instances=count,
                                     seed=seed, center_mm=[center_x_mm, center_y_mm])
 
@@ -1807,8 +1807,8 @@ class SolidWorksSession:
         dim = binding.wrap(model.Parameter(dimension_name), self._mod.IDimension)
         if dim is None:
             raise SolidWorksError(
-                f"Dimensie '{dimension_name}' niet gevonden. "
-                "Gebruik de 'D1@<feature>'-notatie."
+                f"Dimension '{dimension_name}' not found. "
+                "Use the 'D1@<feature>' notation."
             )
         old_mm = m_to_mm(dim.SystemValue)
         dim.SystemValue = mm_to_m(value_mm)
@@ -1839,14 +1839,14 @@ class SolidWorksSession:
         model = self._require_model()
         eqmgr = binding.wrap(model.GetEquationMgr(), self._mod.IEquationMgr)
         if eqmgr is None:
-            raise SolidWorksError("Geen EquationManager beschikbaar.")
+            raise SolidWorksError("No EquationManager available.")
         count = eqmgr.GetCount()
         count = count() if callable(count) else count
         index = eqmgr.Add2(int(count), equation, True)  # append, solve immediately
         if index < 0:
             raise SolidWorksError(
-                f"Equation toevoegen mislukt (Add2 gaf {index}). Controleer de syntax, "
-                "bv. '\"D1@BlockExtrude\" = 25'."
+                f"Adding the equation failed (Add2 returned {index}). Check the syntax, "
+                "e.g. '\"D1@BlockExtrude\" = 25'."
             )
         rebuilt_ok = bool(model.ForceRebuild3(False))
         return {
@@ -1874,8 +1874,8 @@ class SolidWorksSession:
         applied_name = applied[0] if isinstance(applied, (list, tuple)) else applied
         if (applied_name or "").strip().lower() != name.strip().lower():
             raise SolidWorksError(
-                f"Materiaal '{name}' niet toegepast (actief: '{applied_name}'). "
-                "Controleer de exacte naam, bv. '6061 Alloy', 'AISI 1020', 'ABS'."
+                f"Material '{name}' was not applied (active: '{applied_name}'). "
+                "Check the exact name, e.g. '6061 Alloy', 'AISI 1020', 'ABS'."
             )
         return {
             "ok": True,
@@ -1897,13 +1897,13 @@ class SolidWorksSession:
         ext = binding.wrap(model.Extension, self._mod.IModelDocExtension)
         mp = binding.wrap(ext.CreateMassProperty(), self._mod.IMassProperty)
         if mp is None:
-            raise SolidWorksError("CreateMassProperty gaf None terug.")
+            raise SolidWorksError("CreateMassProperty returned None.")
         # Force SI (m, kg) regardless of document units. This is coupled to the
         # fixed 1e9/1e6/m_to_mm factors below, so do NOT swallow a failure here:
         # silently wrong units would be worse than a loud error.
         mp.UseSystemUnits = True
         if not mp.UseSystemUnits:
-            raise SolidWorksError("Kon mass properties niet in SI forceren (UseSystemUnits=False).")
+            raise SolidWorksError("Could not force mass properties to SI units (UseSystemUnits=False).")
         com = mp.CenterOfMass
         props = {
             "volume_mm3": mp.Volume * 1e9,
@@ -2027,12 +2027,12 @@ class SolidWorksSession:
         returned values afterwards -- these are application-wide preferences.
         """
         if deviation_mm is not None and deviation_mm <= 0:
-            raise SolidWorksError(f"deviation_mm moet > 0 zijn (kreeg {deviation_mm}).")
+            raise SolidWorksError(f"deviation_mm must be > 0 (got {deviation_mm}).")
         if angle_deg is not None and angle_deg <= 0:
-            raise SolidWorksError(f"angle_deg moet > 0 zijn (kreeg {angle_deg}).")
+            raise SolidWorksError(f"angle_deg must be > 0 (got {angle_deg}).")
         levels = {"coarse": SW_STL_QUALITY_COARSE, "fine": SW_STL_QUALITY_FINE}
         if deviation_mm is None and quality not in levels:
-            raise SolidWorksError(f"quality moet 'coarse' of 'fine' zijn (kreeg '{quality}').")
+            raise SolidWorksError(f"quality must be 'coarse' or 'fine' (got '{quality}').")
 
         sw = self._sw
         old = {
@@ -2072,7 +2072,7 @@ class SolidWorksSession:
         fmt = (file_format or os.path.splitext(path)[1].lstrip(".")).lower()
         if fmt not in EXPORT_FORMATS:
             raise SolidWorksError(
-                f"Onbekend exportformaat '{fmt}'. Toegestaan: {sorted(EXPORT_FORMATS)}."
+                f"Unknown export format '{fmt}'. Allowed: {sorted(EXPORT_FORMATS)}."
             )
         abs_path = os.path.abspath(path)
         result = {"ok": True, "path": abs_path, "format": fmt}
@@ -2097,7 +2097,7 @@ class SolidWorksSession:
         model = self._require_model()
         ext = os.path.splitext(path)[1].lstrip(".").lower()
         if ext not in {"png", "bmp", "jpg", "tif"}:
-            raise SolidWorksError(f"Screenshot-extensie '{ext}' niet ondersteund (png/bmp/jpg/tif).")
+            raise SolidWorksError(f"Screenshot extension '{ext}' is not supported (png/bmp/jpg/tif).")
         try:
             model.ShowNamedView2("", SW_VIEW_ISOMETRIC)  # best-effort orientation
         except pythoncom.com_error:
@@ -2136,7 +2136,7 @@ class SolidWorksSession:
             model = binding.wrap(sw.NewAssembly(), self._mod.IModelDoc2)
         if model is None:
             raise SolidWorksError(
-                "Kon geen nieuwe assembly maken (template + NewAssembly faalden)."
+                "Could not create a new assembly (template and NewAssembly both failed)."
             )
         self._model = model
         return {"ok": True, "title": model.GetTitle()}
@@ -2146,12 +2146,12 @@ class SolidWorksSession:
         sw = self._ensure()
         abs_path = os.path.abspath(path)
         if not os.path.isfile(abs_path):
-            raise SolidWorksError(f"Bestand niet gevonden: {abs_path}")
+            raise SolidWorksError(f"File not found: {abs_path}")
         result = sw.OpenDoc6(abs_path, SW_DOC_ASSEMBLY, SW_OPEN_DOC_SILENT, "", 0, 0)
         doc = result[0] if isinstance(result, tuple) else result
         model = binding.wrap(doc, self._mod.IModelDoc2)
         if model is None:
-            raise SolidWorksError(f"Kon de assembly niet openen: {abs_path}")
+            raise SolidWorksError(f"Could not open the assembly: {abs_path}")
         self._model = model
         return {"ok": True, "title": model.GetTitle(), "path": abs_path}
 
@@ -2211,14 +2211,14 @@ class SolidWorksSession:
         coords = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, data)
         xform = binding.wrap(mathutil.CreateTransform(coords), self._mod.IMathTransform)
         if xform is None:
-            raise SolidWorksError("CreateTransform gaf None terug; kon geen transform bouwen.")
+            raise SolidWorksError("CreateTransform returned None; could not build a transform.")
         return xform
 
     def _transform_data(self, comp) -> list:
         """The component's transform as the raw 16-float ArrayData."""
         xform = binding.wrap(comp.Transform2, self._mod.IMathTransform)
         if xform is None:
-            raise SolidWorksError(f"Component '{comp.Name2}' heeft geen leesbare transform.")
+            raise SolidWorksError(f"Component '{comp.Name2}' has no readable transform.")
         return list(xform.ArrayData)
 
     def _placement(self, comp) -> dict:
@@ -2251,11 +2251,11 @@ class SolidWorksSession:
             tol = self._ROTATION_TOLERANCE if i < 9 else mm_to_m(self._TRANSFORM_TOLERANCE_MM)
             if abs(want - have) > tol:
                 raise SolidWorksError(
-                    f"Transform van '{comp.Name2}' is niet toegepast: gevraagd positie "
-                    f"({x_mm:g}, {y_mm:g}, {z_mm:g}) mm rotatie ({rx_deg:g}, {ry_deg:g}, "
-                    f"{rz_deg:g}) graden, teruggelezen positie "
-                    f"{[round(m_to_mm(v), 4) for v in got[9:12]]} mm. Element {i} wijkt "
-                    f"{abs(want - have):.3e} af. Legt een bestaande mate deze component al vast?"
+                    f"The transform of '{comp.Name2}' was not applied: requested position "
+                    f"({x_mm:g}, {y_mm:g}, {z_mm:g}) mm, rotation ({rx_deg:g}, {ry_deg:g}, "
+                    f"{rz_deg:g}) degrees; read-back position "
+                    f"{[round(m_to_mm(v), 4) for v in got[9:12]]} mm. Element {i} is off by "
+                    f"{abs(want - have):.3e}. Does an existing mate already constrain this component?"
                 )
         return self._placement(comp)
 
@@ -2280,7 +2280,7 @@ class SolidWorksSession:
         """
         key = (name or "").strip().lower()
         if not key:
-            raise SolidWorksError("Geef een componentnaam op.")
+            raise SolidWorksError("Give a component name.")
         comps = self._components(asm)
         exact = [c for c in comps if c.Name2.lower() == key]
         if len(exact) == 1:
@@ -2290,11 +2290,11 @@ class SolidWorksSession:
             return prefixed[0]
         if len(prefixed) > 1:
             raise SolidWorksError(
-                f"Componentnaam '{name}' is niet uniek; kandidaten: "
+                f"Component name '{name}' is not unique; candidates: "
                 f"{sorted(c.Name2 for c in prefixed)}."
             )
         raise SolidWorksError(
-            f"Component '{name}' niet gevonden. Aanwezig: {[c.Name2 for c in comps]}."
+            f"Component '{name}' not found. Present: {[c.Name2 for c in comps]}."
         )
 
     def _component_box(self, comp) -> dict:
@@ -2324,11 +2324,11 @@ class SolidWorksSession:
         model.ClearSelection2(True)
         selmgr = binding.wrap(model.SelectionManager, self._mod.ISelectionMgr)
         if not comp.Select4(False, selmgr.CreateSelectData(), False):
-            raise SolidWorksError(f"Kon component '{comp.Name2}' niet selecteren.")
+            raise SolidWorksError(f"Could not select component '{comp.Name2}'.")
         asm.FixComponent()
         model.ClearSelection2(True)
         if not comp.IsFixed():
-            raise SolidWorksError(f"Component '{comp.Name2}' kon niet vastgezet worden (fixed).")
+            raise SolidWorksError(f"Component '{comp.Name2}' could not be fixed.")
 
     def insert_component(self, path: str, x_mm: float = 0.0, y_mm: float = 0.0,
                          z_mm: float = 0.0, fixed: bool | None = None) -> dict:
@@ -2345,7 +2345,7 @@ class SolidWorksSession:
         asm = self._require_assembly()
         abs_path = os.path.abspath(path)
         if not os.path.isfile(abs_path):
-            raise SolidWorksError(f"Part niet gevonden: {abs_path}")
+            raise SolidWorksError(f"Part not found: {abs_path}")
         if fixed is None:
             fixed = not self._component_dispatches(asm)
 
@@ -2362,8 +2362,8 @@ class SolidWorksSession:
         )
         if comp is None:
             raise SolidWorksError(
-                f"AddComponent5 gaf None voor '{abs_path}'. Is het een geldig "
-                "SolidWorks-part en kon SolidWorks het laden?"
+                f"AddComponent5 returned None for '{abs_path}'. Is it a valid "
+                "SolidWorks part, and could SolidWorks load it?"
             )
         self._apply_transform(comp, x_mm, y_mm, z_mm, 0.0, 0.0, 0.0)
         if fixed:
@@ -2400,7 +2400,7 @@ class SolidWorksSession:
         bodies = comp.GetBodies2(SW_BODY_SOLID)
         if not bodies:
             raise SolidWorksError(
-                f"Component '{comp.Name2}' heeft geen solid body om een vlak op te kiezen."
+                f"Component '{comp.Name2}' has no solid body to pick a face on."
             )
         if not isinstance(bodies, (list, tuple)):
             bodies = [bodies]
@@ -2424,7 +2424,7 @@ class SolidWorksSession:
         face, position_mm = self._pick_planar_face(self._component_faces(comp), normal, side)
         if face is None:
             raise SolidWorksError(
-                f"Component '{comp.Name2}' heeft geen planair vlak dat naar {selector} wijst."
+                f"Component '{comp.Name2}' has no planar face pointing {selector}."
             )
         return face, position_mm
 
@@ -2485,12 +2485,12 @@ class SolidWorksSession:
         key = (mate_type or "").lower().strip()
         if key not in MATE_TYPES:
             raise SolidWorksError(
-                f"Onbekend mate-type '{mate_type}'. Gebruik: {sorted(MATE_TYPES)}."
+                f"Unknown mate type '{mate_type}'. Use one of: {sorted(MATE_TYPES)}."
             )
         if key == "distance" and distance_mm < 0:
-            raise SolidWorksError(f"distance moet >= 0 zijn (kreeg {distance_mm}).")
+            raise SolidWorksError(f"distance must be >= 0 (got {distance_mm}).")
         if (comp_a or "").strip().lower() == (comp_b or "").strip().lower():
-            raise SolidWorksError("Een mate legt twee VERSCHILLENDE componenten vast.")
+            raise SolidWorksError("A mate constrains two DIFFERENT components.")
 
         first = self._component_by_name(asm, comp_a)
         second = self._component_by_name(asm, comp_b)
@@ -2505,7 +2505,7 @@ class SolidWorksSession:
         for entity, comp, selector in ((face_1, first, face_a), (face_2, second, face_b)):
             if not binding.wrap(entity, self._mod.IEntity).Select4(True, select_data):
                 raise SolidWorksError(
-                    f"Kon vlak {selector} van component '{comp.Name2}' niet selecteren."
+                    f"Could not select face {selector} of component '{comp.Name2}'."
                 )
 
         distance_m = mm_to_m(distance_mm) if key == "distance" else 0.0
@@ -2526,9 +2526,9 @@ class SolidWorksSession:
         mate, status = (result[0], result[-1]) if isinstance(result, tuple) else (result, None)
         if mate is None or (status is not None and int(status) != SW_ADD_MATE_NO_ERROR):
             raise SolidWorksError(
-                f"Mate '{key}' tussen {first.Name2}:{face_a} en {second.Name2}:{face_b} "
-                f"mislukte (AddMate5 status {status}). Staan de vlakken in een stand die "
-                "deze mate toelaat, en spreekt hij bestaande mates niet tegen?"
+                f"Mate '{key}' between {first.Name2}:{face_a} and {second.Name2}:{face_b} "
+                f"failed (AddMate5 status {status}). Are the faces in a position that "
+                "allows this mate, without contradicting existing mates?"
             )
 
         asm.EditRebuild()
@@ -2537,16 +2537,16 @@ class SolidWorksSession:
         if (expected_mm is not None
                 and abs(measured_mm - expected_mm) > self._MATE_DISTANCE_TOLERANCE_MM):
             raise SolidWorksError(
-                f"Mate '{key}' is gebouwd maar levert {measured_mm:.4f} mm in plaats van "
-                f"{expected_mm:g} mm tussen {first.Name2}:{face_a} en {second.Name2}:{face_b}. "
-                "Probeer flip=True, of controleer of een andere mate deze tegenwerkt."
+                f"Mate '{key}' was built but gives {measured_mm:.4f} mm instead of "
+                f"{expected_mm:g} mm between {first.Name2}:{face_a} and {second.Name2}:{face_b}. "
+                "Try flip=True, or check whether another mate works against it."
             )
         expected_angle = self._MATE_EXPECTED_ANGLE_DEG.get(key)
         if (expected_angle is not None
                 and abs(angle_deg - expected_angle) > self._MATE_ANGLE_TOLERANCE_DEG):
             raise SolidWorksError(
-                f"Mate '{key}' is gebouwd maar de vlakken staan {angle_deg:.4f} graden uit "
-                f"elkaar in plaats van {expected_angle:g}."
+                f"Mate '{key}' was built but the faces are {angle_deg:.4f} degrees apart "
+                f"instead of {expected_angle:g}."
             )
         return {
             "ok": True,
@@ -2572,7 +2572,7 @@ class SolidWorksSession:
         manager = binding.wrap(asm.InterferenceDetectionManager,
                                self._mod.IInterferenceDetectionMgr)
         if manager is None:
-            raise SolidWorksError("Kon de InterferenceDetectionManager niet openen.")
+            raise SolidWorksError("Could not open the InterferenceDetectionManager.")
         manager.TreatCoincidenceAsInterference = False
         manager.TreatSubAssembliesAsComponents = True
         manager.IncludeMultibodyPartInterferences = False

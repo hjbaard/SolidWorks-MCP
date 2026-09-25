@@ -33,7 +33,7 @@ def module():
     """Return the generated sldworks wrapper module (ISldWorks, IModelDoc2, ...)
     for the SolidWorks that connect() attached to."""
     if _mod is None:
-        raise SolidWorksError("Nog geen verbinding met SolidWorks; roep eerst connect() aan.")
+        raise SolidWorksError("Not connected to SolidWorks yet; call connect() first.")
     return _mod
 
 
@@ -41,7 +41,7 @@ def _typelib_major(revision):
     """Typelib major version for a SolidWorks revision string ("34.3.0" -> 34)."""
     head = str(revision).split(".")[0]
     if not head.isdigit():
-        raise SolidWorksError(f"Onverwacht SolidWorks-revisienummer: {revision!r}.")
+        raise SolidWorksError(f"Unexpected SolidWorks revision number: {revision!r}.")
     return int(head)
 
 
@@ -51,13 +51,13 @@ def _load_module(revision):
         mod = gencache.EnsureModule(_SLDWORKS_TLB_GUID, _SLDWORKS_TLB_LCID, major, 0)
     except pythoncom.com_error as exc:
         raise SolidWorksError(
-            f"SolidWorks {revision} draait, maar de typelib (versie {major}) is niet "
-            f"geregistreerd. Repareer de SolidWorks-installatie. (COM error: {exc})"
+            f"SolidWorks {revision} is running, but its type library (version {major}) is not "
+            f"registered. Repair the SolidWorks installation. (COM error: {exc})"
         )
     if mod is None:
         raise SolidWorksError(
-            f"Kon de SolidWorks typelib-wrappers (versie {major}) niet laden/genereren. "
-            "Is SolidWorks correct geïnstalleerd?"
+            f"Could not load or generate the SolidWorks type library wrappers (version {major}). "
+            "Is SolidWorks installed correctly?"
         )
     return mod
 
@@ -85,7 +85,7 @@ def connect():
         raw = win32com.client.GetActiveObject("SldWorks.Application")
     except pythoncom.com_error as exc:
         raise SolidWorksError(
-            "Geen draaiende SolidWorks gevonden. Start SolidWorks en probeer opnieuw. "
+            "No running SolidWorks found. Start SolidWorks and try again. "
             f"(COM error: {exc})"
         )
     # Read the revision without type info: the matching wrappers aren't loaded yet.

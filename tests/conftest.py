@@ -25,7 +25,7 @@ def sw():
     try:
         session.connect()
     except SolidWorksError as exc:
-        pytest.skip(f"SolidWorks niet bereikbaar: {exc}")
+        pytest.skip(f"SolidWorks not reachable: {exc}")
     return session
 
 

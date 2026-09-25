@@ -25,7 +25,7 @@ class _NoSolidWorks:
     def __getattr__(self, name):
         def unavailable(*args, **kwargs):
             raise SolidWorksError(
-                f"SolidWorks MCP werkt alleen op Windows met SolidWorks (dit is {sys.platform})."
+                f"SolidWorks MCP only works on Windows with SolidWorks installed (this is {sys.platform})."
             )
         return unavailable
 
@@ -58,7 +58,7 @@ async def _call(fn, *args, **kwargs) -> dict:
         # raw HRESULT tuples are useless as a correction-loop signal.
         info = getattr(exc, "excepinfo", None)
         desc = info[2] if info and len(info) > 2 and info[2] else getattr(exc, "strerror", None)
-        return {"ok": False, "error": f"SolidWorks COM-fout: {desc or exc}"}
+        return {"ok": False, "error": f"SolidWorks COM error: {desc or exc}"}
     except Exception as exc:  # noqa: BLE001 - never leak a stack trace to the agent
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 

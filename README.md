@@ -87,7 +87,7 @@ may still change. See [CHANGELOG.md](https://github.com/hjbaard/SolidWorks-MCP/b
 
 ## Troubleshooting
 
-- **"Geen draaiende SolidWorks gevonden" / connection fails** — SolidWorks must be
+- **"No running SolidWorks found" / connection fails** — SolidWorks must be
   *running* before you start the server or run a script; it attaches to the active
   instance via `GetActiveObject` and does not launch one.
 - **First call is slow or `EnsureModule` errors** — the first COM call generates the
@@ -95,7 +95,7 @@ may still change. See [CHANGELOG.md](https://github.com/hjbaard/SolidWorks-MCP/b
   into a bad state, delete the `gen_py` cache and retry. Early binding is mandatory on
   this build (see [Architecture](#architecture)).
 - **A feature returns `{ok: false, error: ...}`** — that is by design: every tool
-  fails loud with a readable (Dutch) message rather than silently producing wrong
+  fails loud with a readable message rather than silently producing wrong
   geometry. Read the message; it names the likely cause.
 - **Only tested against SOLIDWORKS 2026 (3DEXPERIENCE R2026x).** On other builds the
   verified enum values or method signatures may differ — re-run

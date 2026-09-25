@@ -84,6 +84,6 @@ def test_server_starts_without_pywin32_and_tools_fail_loud():
     listed = sorted(t["name"] for t in replies[2]["result"]["tools"])
     assert listed == _declared_tools(), "off Windows the server lists a different tool set"
     call_text = json.dumps(replies[3]["result"])
-    assert "alleen op Windows" in call_text, (
+    assert "only works on Windows" in call_text, (
         f"a tool call off Windows must fail with a readable message, got: {call_text}"
     )
