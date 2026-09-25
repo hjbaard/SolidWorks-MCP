@@ -20,7 +20,8 @@ classifiers = [
 ]
 dependencies = [
     "pywin32>=306",
-    "mcp>=1.0",
+    # mcp 2.x renamed FastMCP (server.py fails on import); 1.26+ is verified.
+    "mcp>=1.26,<2",
 ]
 
 [project.urls]

@@ -9,6 +9,8 @@ All notable changes to this project are documented here. This project follows
 - **Only SOLIDWORKS 2026 could connect**: the typelib version was hard-coded to
   34 (2026), so on any other release the first call failed with "Library not
   registered". The version is now read from the running SolidWorks.
+- **Fresh installs crashed on start-up**: `mcp>=1.0` now resolves to mcp 2.x,
+  which renamed `FastMCP`. Pinned to `mcp>=1.26,<2` (1.26–1.30 verified).
 
 ## [0.2.0] — 2026-09-05
 
