@@ -28,6 +28,7 @@ dependencies = [
 Homepage = "https://github.com/hjbaard/SolidWorks-MCP"
 Repository = "https://github.com/hjbaard/SolidWorks-MCP"
 Changelog = "https://github.com/hjbaard/SolidWorks-MCP/blob/main/CHANGELOG.md"
+Issues = "https://github.com/hjbaard/SolidWorks-MCP/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]

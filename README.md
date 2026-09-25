@@ -6,10 +6,12 @@ modelling call returns the measured volume, mass and bounding box, so the agent
 can compare the result with the spec and correct itself instead of guessing that
 it "looks about right".
 
+<!-- mcp-name: io.github.hjbaard/solidworks-mcp -->
+
 <p align="center">
-  <img src="Docs/images/bracket.png" width="32%" alt="3D-print mounting bracket with counterbored holes, bolt circle and cable slot">
-  <img src="Docs/images/vase.png" width="32%" alt="Revolved and shelled vase">
-  <img src="Docs/images/pipe.png" width="32%" alt="Swept pipe with rounded bends">
+  <img src="https://raw.githubusercontent.com/hjbaard/SolidWorks-MCP/main/Docs/images/bracket.png" width="32%" alt="3D-print mounting bracket with counterbored holes, bolt circle and cable slot">
+  <img src="https://raw.githubusercontent.com/hjbaard/SolidWorks-MCP/main/Docs/images/vase.png" width="32%" alt="Revolved and shelled vase">
+  <img src="https://raw.githubusercontent.com/hjbaard/SolidWorks-MCP/main/Docs/images/pipe.png" width="32%" alt="Swept pipe with rounded bends">
 </p>
 <p align="center"><sub>Built by the tools themselves: a mounting bracket (every step checked against a hand calculation), a revolved + shelled vase, a swept pipe.</sub></p>
 
@@ -73,7 +75,7 @@ it "looks about right".
   result, whether it worked or not.
 
 **Status: early (v0.2).** It works end-to-end, but tool names and conventions
-may still change. See [CHANGELOG.md](CHANGELOG.md).
+may still change. See [CHANGELOG.md](https://github.com/hjbaard/SolidWorks-MCP/blob/main/CHANGELOG.md).
 
 ## Troubleshooting
 
@@ -247,10 +249,10 @@ Proven end-to-end against **SOLIDWORKS 2026 (3DEXPERIENCE R2026x)**:
 | M2 | change a named dimension → rebuild → volume changes predictably | ✅ |
 | M3 | full agent loop via the MCP server: build → measure → correct → export STEP/STL + screenshot | ✅ |
 | M4 | revolve, sweep, loft, profiles, holes/pockets/counterbores, slots, fillet/chamfer, shell, patterns, equations, materials, save/open | 🚧 ongoing |
-| M5 | end-to-end 3D-print part: build a functional mounting bracket through the full loop → verify every dimension → export a fine STL ([scripts/m5_demo_bracket.py](scripts/m5_demo_bracket.py)) | ✅ |
-| M6 | assemblies: insert and position components, mate them, check interference — every placement and mate measured back ([tests/test_assembly.py](tests/test_assembly.py)) | ✅ |
+| M5 | end-to-end 3D-print part: build a functional mounting bracket through the full loop → verify every dimension → export a fine STL ([scripts/m5_demo_bracket.py](https://github.com/hjbaard/SolidWorks-MCP/blob/main/scripts/m5_demo_bracket.py)) | ✅ |
+| M6 | assemblies: insert and position components, mate them, check interference — every placement and mate measured back ([tests/test_assembly.py](https://github.com/hjbaard/SolidWorks-MCP/blob/main/tests/test_assembly.py)) | ✅ |
 
-See [Docs/PROGRESS.md](Docs/PROGRESS.md) for the detailed log and roadmap.
+See [Docs/PROGRESS.md](https://github.com/hjbaard/SolidWorks-MCP/blob/main/Docs/PROGRESS.md) for the detailed log and roadmap.
 Feedback and contributions are welcome.
 
 ## Known limitations

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.hjbaard/solidworks-mcp",
+  "title": "SolidWorks",
+  "description": "Model, measure and verify parametric parts and assemblies in a running SolidWorks (Windows).",
+  "repository": {
+    "url": "https://github.com/hjbaard/SolidWorks-MCP",
+    "source": "github"
+  },
+  "version": "0.2.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "solidworks-mcp",
+      "version": "0.2.0",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
