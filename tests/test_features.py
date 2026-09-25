@@ -137,6 +137,21 @@ def test_loft_two_squares(part):
     assert abs(got - 28000) < 1.0
 
 
+SW_VISIBILITY_HIDE = 1  # swVisibilityState_e.swVisibilityStateHide
+
+
+def test_loft_hides_its_helper_planes(part):
+    """The offset planes a loft needs are construction geometry: left visible, they
+    clutter every screenshot the agent takes to check its work."""
+    squares = [[[-s, -s], [s, -s], [s, s], [-s, s]] for s in (20, 15, 10)]
+    part.add_lofted_solid(squares, [0, 20, 40])
+
+    helpers = part._ref_planes()[3:]  # after Front, Top and Right
+    assert len(helpers) == 2
+    visible = [p.Name for p in helpers if p.Visible != SW_VISIBILITY_HIDE]
+    assert not visible, f"the loft left its helper planes visible: {visible}"
+
+
 def test_loft_length_mismatch_raises(part):
     sq = [[-10, -10], [10, -10], [10, 10], [-10, 10]]
     with pytest.raises(SolidWorksError):

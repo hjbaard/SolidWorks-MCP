@@ -11,6 +11,10 @@ All notable changes to this project are documented here. This project follows
   fails loud: SolidWorks still needs Windows. `pywin32` is a Windows-only
   dependency now.
 
+### Fixed
+- `add_lofted_solid` left its helper offset planes visible, cluttering every
+  screenshot; they are hidden after the loft now.
+
 ## [0.2.1] — 2026-09-25
 
 ### Fixed

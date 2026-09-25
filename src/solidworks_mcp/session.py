@@ -1057,6 +1057,7 @@ class SolidWorksSession:
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
 
         sketch_names = []
+        helper_planes = []
         for poly, height in zip(cleaned, heights_mm):
             if not base.Select2(False, 0):
                 raise SolidWorksError("Kon de Front plane niet selecteren.")
@@ -1068,6 +1069,7 @@ class SolidWorksSession:
                 plane = self._last_ref_plane()
                 if plane is None or not plane.Select2(False, 0):
                     raise SolidWorksError(f"Kon het offsetvlak op z={height} niet selecteren.")
+                helper_planes.append(plane)
             before = self._profile_feature_names()
             sk.InsertSketch(True)
             self._draw_polygon_segments(sk, [(mm_to_m(x), mm_to_m(y)) for x, y in poly])
@@ -1101,6 +1103,12 @@ class SolidWorksSession:
             raise SolidWorksError(
                 "InsertProtrusionBlend mislukte (None). Liggen de profielen geldig gestapeld?"
             )
+        # The offset planes are construction geometry; hide them so they don't
+        # clutter screenshots.
+        for plane in helper_planes:
+            if plane.Select2(False, 0):
+                model.BlankRefGeom()
+        model.ClearSelection2(True)
         return self._finish_feature(loft, name)
 
     def _cut_circle_on_z(self, model, diameter_mm: float, x_mm: float, y_mm: float,
