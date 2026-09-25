@@ -1,64 +1,79 @@
 # SolidWorks MCP
 
-An MCP server that drives a **locally running SolidWorks** instance over the COM
-API (pywin32), so an AI agent can build, measure and export parametric parts —
-and run a closed **build → measure → verify → correct** loop.
+Let an AI agent (Claude, or any other MCP client) model real parametric parts and
+assemblies in **your own SolidWorks** — and **check its own work**. Every
+modelling call returns the measured volume, mass and bounding box, so the agent
+can compare the result with the spec and correct itself instead of guessing that
+it "looks about right".
 
-The point isn't just "make geometry". Parametric CAD gives *hard, verifiable
-signals* (rebuild status, mass properties, measurements, bounding box), which
-makes an agentic correction loop realistic instead of "it looks about right".
+<p align="center">
+  <img src="Docs/images/bracket.png" width="32%" alt="3D-print mounting bracket with counterbored holes, bolt circle and cable slot">
+  <img src="Docs/images/vase.png" width="32%" alt="Revolved and shelled vase">
+  <img src="Docs/images/pipe.png" width="32%" alt="Swept pipe with rounded bends">
+</p>
+<p align="center"><sub>Built by the tools themselves: a mounting bracket (every step checked against a hand calculation), a revolved + shelled vase, a swept pipe.</sub></p>
 
-> ⚠️ **Early draft (v0.2).** This is still an experimental release. It
-> works end-to-end on the author's setup (SOLIDWORKS 2026 / 3DEXPERIENCE R2026x),
-> and every feature is verified against a hand calculation — but the tool surface
-> and conventions may still change, and it has only been tested against one
-> SolidWorks build. Use it as a starting point, not a finished product. Feedback
-> and contributions are welcome. See [CHANGELOG.md](CHANGELOG.md).
+## Why this server
 
-## Status (v0.2)
-
-Proven end-to-end against **SOLIDWORKS 2026 (3DEXPERIENCE R2026x)**:
-
-| Milestone | What it proves | State |
-|---|---|---|
-| M0 | COM connection to a running SolidWorks | ✅ |
-| M1 | new part → sketch rectangle → extrude → mass properties (volume matches hand calc) | ✅ |
-| M2 | change a named dimension → rebuild → volume changes predictably | ✅ |
-| M3 | full agent loop via the MCP server: build → measure → correct → export STEP/STL + screenshot | ✅ |
-| M4 | revolve, sweep, loft, profiles, holes/pockets/counterbores, slots, fillet/chamfer, shell, patterns, equations, materials, save/open | 🚧 ongoing |
-| M5 | end-to-end 3D-print part: build a functional mounting bracket through the full loop → verify every dimension → export a fine STL ([scripts/m5_demo_bracket.py](scripts/m5_demo_bracket.py)) | ✅ |
-| M6 | assemblies: insert and position components, mate them, check interference — a furnished room assembled and proven clash-free ([scripts/m6_demo_kamer.py](scripts/m6_demo_kamer.py)) | ✅ |
-
-See [Docs/PROGRESS.md](Docs/PROGRESS.md) for the detailed log and roadmap.
-
-## Requirements
-
-- Windows, with SolidWorks installed and a valid licence.
-- SolidWorks **running** (the server attaches to the active instance; it does not
-  launch one).
-- Python 3.11+.
-
-## Setup
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e .
-```
-
-This installs `pywin32` + the `mcp` SDK and the `solidworks-mcp` package
-(editable). The first COM call generates the SolidWorks typelib wrappers
-automatically (this can take a few seconds the very first time).
+- **It verifies, not just generates.** Features report measured geometry;
+  dimensions and mates are measured back after the rebuild.
+- **Real CAD, not just primitives.** Extrude, revolve, sweep, loft and splines;
+  holes, counterbores, slots and pockets on any face; fillets, chamfers, shells,
+  patterns, equations and materials. Assemblies with mates and interference
+  checks. STEP/STL/3MF export and screenshots. 45 tools in total.
+- **It fails loud.** A call that cannot do what was asked returns
+  `{ok: false, error}` with the cause, never silently wrong geometry.
+- **A fixed, typed tool surface.** There is no "run arbitrary code" tool; the
+  agent can only do what the tools allow.
+- **Tested against real SolidWorks.** 175 tests; each feature's integration test
+  compares the result with a hand calculation.
+- **Local.** It talks to your running SolidWorks over COM; the server itself
+  makes no network calls.
 
 ## Quickstart
 
-1. **Start SolidWorks** and leave it open (the server attaches to the running
+1. Install [uv](https://docs.astral.sh/uv/getting-started/installation/).
+2. **Start SolidWorks** and leave it open (the server attaches to the running
    instance — it does not launch one).
-2. Install the package into a venv (see [Setup](#setup)).
-3. Sanity-check the connection: `.\.venv\Scripts\python.exe scripts\probe_connection.py`
-   should report the SolidWorks revision and active document.
-4. Build something end-to-end: `.\.venv\Scripts\python.exe scripts\m5_demo_bracket.py`
-   builds a mounting bracket and verifies every step against a hand calculation.
-5. To use it as an MCP server from an AI client, see [Use as an MCP server](#use-as-an-mcp-server).
+3. Register the server with your MCP client.
+
+   **Claude Code:**
+
+   ```bash
+   claude mcp add solidworks -- uvx --from git+https://github.com/hjbaard/SolidWorks-MCP solidworks-mcp
+   ```
+
+   **Claude Desktop** (`claude_desktop_config.json`) or any other client:
+
+   ```json
+   {
+     "mcpServers": {
+       "solidworks": {
+         "command": "uvx",
+         "args": ["--from", "git+https://github.com/hjbaard/SolidWorks-MCP", "solidworks-mcp"]
+       }
+     }
+   }
+   ```
+
+4. Ask for a part, for example:
+
+   > Design a 100 × 80 × 8 mm mounting plate with a Ø16 mm centre bore, four
+   > counterbored M5 holes 12 mm from the corners and R5 corners. Check the
+   > volume against your own calculation, then export a fine STL.
+
+## Requirements and compatibility
+
+- Windows, with SolidWorks installed, licensed and **running**.
+- Python 3.11+ (uv fetches one if needed).
+- **Tested on SOLIDWORKS 2026** (3DEXPERIENCE R2026x). The API calls it uses
+  exist since SOLIDWORKS 2020 SP2, so 2020–2025 should work, but that is
+  **untested**. Tried another version? Please
+  [open an issue](https://github.com/hjbaard/SolidWorks-MCP/issues) with the
+  result, whether it worked or not.
+
+**Status: early (v0.2).** It works end-to-end, but tool names and conventions
+may still change. See [CHANGELOG.md](CHANGELOG.md).
 
 ## Troubleshooting
 
@@ -76,7 +91,30 @@ automatically (this can take a few seconds the very first time).
   verified enum values or method signatures may differ — re-run
   `scripts/introspect_api.py` to inspect your installed typelib.
 
-## Run the verification scripts
+## Development
+
+Clone the repository, then install it editable into a venv:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e .[dev]
+```
+
+To run the MCP server from this checkout instead of via uvx, point your client
+at the venv's Python:
+
+```json
+{
+  "mcpServers": {
+    "solidworks": {
+      "command": "C:\\path\\to\\SolidWorks-MCP\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "solidworks_mcp.server"]
+    }
+  }
+}
+```
+
+### Run the verification scripts
 
 With SolidWorks open:
 
@@ -89,13 +127,13 @@ With SolidWorks open:
 .\.venv\Scripts\python.exe scripts\m6_demo_kamer.py        # M6 (furnished room assembly, clash-free)
 ```
 
-`scripts/m6_demo_kamer.py` needs the three sample parts in `D:\Ontwikkeling\Kamer Yara`;
-edit `PARTS_DIR` at the top to point at your own parts.
+`scripts/m6_demo_kamer.py` needs three sample parts on disk; edit `PARTS_DIR` at
+the top to point at your own parts.
 
 `scripts/introspect_api.py` regenerates/inspects the installed typelib and prints
 verified enum values — run it if SolidWorks is upgraded and signatures change.
 
-## Tests
+### Tests
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest                 # all tests
@@ -107,25 +145,13 @@ cleaning, the component-placement maths, and that every MCP tool forwards its
 arguments to the right session method) run anywhere; **integration tests**
 (`solidworks` marker) drive a running SolidWorks and verify each feature's
 volume — or each component's placement — against a hand calc. They auto-skip if
-SolidWorks isn't reachable. `pip install -e .[dev]` for pytest.
+SolidWorks isn't reachable.
 
-## Use as an MCP server
+## Tools
 
-The server speaks MCP over **stdio**. Register it with an MCP client (e.g. Claude
-Desktop / Claude Code) using the venv's Python:
+The server speaks MCP over **stdio**.
 
-```json
-{
-  "mcpServers": {
-    "solidworks": {
-      "command": "D:\\Ontwikkeling\\Solidworks-MCP\\.venv\\Scripts\\python.exe",
-      "args": ["-m", "solidworks_mcp.server"]
-    }
-  }
-}
-```
-
-### Tools
+### Part tools
 
 | Tool | Purpose |
 |---|---|
@@ -214,7 +240,24 @@ Two non-obvious design decisions, both load-bearing:
    that handlers post to and await — actively enforcing the "one COM session,
    single-threaded" rule that does not hold automatically in an async server.
 
-## Known limitations / roadmap
+## Status and roadmap
+
+Proven end-to-end against **SOLIDWORKS 2026 (3DEXPERIENCE R2026x)**:
+
+| Milestone | What it proves | State |
+|---|---|---|
+| M0 | COM connection to a running SolidWorks | ✅ |
+| M1 | new part → sketch rectangle → extrude → mass properties (volume matches hand calc) | ✅ |
+| M2 | change a named dimension → rebuild → volume changes predictably | ✅ |
+| M3 | full agent loop via the MCP server: build → measure → correct → export STEP/STL + screenshot | ✅ |
+| M4 | revolve, sweep, loft, profiles, holes/pockets/counterbores, slots, fillet/chamfer, shell, patterns, equations, materials, save/open | 🚧 ongoing |
+| M5 | end-to-end 3D-print part: build a functional mounting bracket through the full loop → verify every dimension → export a fine STL ([scripts/m5_demo_bracket.py](scripts/m5_demo_bracket.py)) | ✅ |
+| M6 | assemblies: insert and position components, mate them, check interference — a furnished room assembled and proven clash-free ([scripts/m6_demo_kamer.py](scripts/m6_demo_kamer.py)) | ✅ |
+
+See [Docs/PROGRESS.md](Docs/PROGRESS.md) for the detailed log and roadmap.
+Feedback and contributions are welcome.
+
+## Known limitations
 
 - Geometry so far: **boxes**, **cylinders/cones** (revolve), **arbitrary
   extruded profiles**, **holes**, **polygon pockets/slots** (`cut_profile`),
