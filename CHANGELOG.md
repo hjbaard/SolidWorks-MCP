@@ -3,6 +3,14 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- The server now starts and lists its tools on any OS, so MCP directories
+  (Glama) can introspect it in a Linux container. Off Windows every tool call
+  fails loud: SolidWorks still needs Windows. `pywin32` is a Windows-only
+  dependency now.
+
 ## [0.2.1] — 2026-09-25
 
 ### Fixed

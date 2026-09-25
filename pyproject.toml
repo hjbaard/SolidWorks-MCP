@@ -19,7 +19,8 @@ classifiers = [
     "Topic :: Scientific/Engineering",
 ]
 dependencies = [
-    "pywin32>=306",
+    # Windows-only; elsewhere the server starts and lists its tools, calls fail loud.
+    "pywin32>=306; sys_platform == 'win32'",
     # mcp 2.x renamed FastMCP (server.py fails on import); 1.26+ is verified.
     "mcp>=1.26,<2",
 ]

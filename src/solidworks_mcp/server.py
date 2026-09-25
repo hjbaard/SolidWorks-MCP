@@ -6,25 +6,54 @@ the agent can read and react to them in the build -> measure -> correct loop,
 rather than getting an opaque stack trace.
 """
 
-import pythoncom
+import sys
+
 from mcp.server.fastmcp import FastMCP
 
-from .com_worker import ComWorker
 from .errors import SolidWorksError
-from .session import SolidWorksSession
 
 mcp = FastMCP("solidworks-mcp")
-_worker = ComWorker()
-_session = SolidWorksSession()
+
+
+class _NoSolidWorks:
+    """Stand-in session off Windows: every method fails with a readable error.
+
+    The server still starts and lists its tools there, because MCP directories
+    introspect servers in a Linux container before listing them.
+    """
+
+    def __getattr__(self, name):
+        def unavailable(*args, **kwargs):
+            raise SolidWorksError(
+                f"SolidWorks MCP werkt alleen op Windows met SolidWorks (dit is {sys.platform})."
+            )
+        return unavailable
+
+
+if sys.platform == "win32":
+    import pythoncom
+
+    from .com_worker import ComWorker
+    from .session import SolidWorksSession
+
+    _worker = ComWorker()
+    _session = SolidWorksSession()
+    _COM_ERROR = pythoncom.com_error
+else:
+    _worker = None
+    _session = _NoSolidWorks()
+    _COM_ERROR = ()  # an empty tuple matches no exception
 
 
 async def _call(fn, *args, **kwargs) -> dict:
     """Run a session method on the COM thread and normalise errors to a result dict."""
     try:
+        if _worker is None:
+            return fn(*args, **kwargs)
         return await _worker.call(lambda: fn(*args, **kwargs))
     except SolidWorksError as exc:
         return {"ok": False, "error": str(exc)}
-    except pythoncom.com_error as exc:
+    except _COM_ERROR as exc:
         # Extract the human-readable description if SolidWorks supplied one;
         # raw HRESULT tuples are useless as a correction-loop signal.
         info = getattr(exc, "excepinfo", None)
@@ -500,7 +529,8 @@ def main() -> None:
     try:
         mcp.run()
     finally:
-        _worker.shutdown()
+        if _worker is not None:
+            _worker.shutdown()
 
 
 if __name__ == "__main__":
