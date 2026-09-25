@@ -69,8 +69,13 @@ short connect-time instructions first; this is the long version.
 - Leave a gap of about 0.2-0.4 mm between printed parts that slide together,
   more for ASA/ABS than for PLA. Print a small fit test of a critical interface
   before the whole part.
+- Printed holes come out 0.1-0.2 mm small. A hole that a part is pushed through
+  must pass the part's widest section, e.g. the diagonal of a flat blade (a
+  6.35 x 0.81 mm spade tab needs more than 6.4 mm), not just its width.
 - Heat-set inserts: follow the insert maker's hole size. For common M3 x 5.7 mm
-  inserts that is about 4.0 mm, at least 0.5 mm deeper than the insert.
+  inserts that is about 4.0 mm, at least 0.5 mm deeper than the insert: the
+  displaced plastic needs room, or it bulges at the mouth and the mating part no
+  longer seats flat.
 - Export for slicing with `export(..., quality="fine")` as 3MF or STL. **STL
   output is moved into positive space** by SolidWorks: compare geometry in the
   model frame, not in raw STL coordinates.
