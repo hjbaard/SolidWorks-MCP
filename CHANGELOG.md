@@ -3,6 +3,13 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- **Only SOLIDWORKS 2026 could connect**: the typelib version was hard-coded to
+  34 (2026), so on any other release the first call failed with "Library not
+  registered". The version is now read from the running SolidWorks.
+
 ## [0.2.0] — 2026-09-05
 
 ### Added

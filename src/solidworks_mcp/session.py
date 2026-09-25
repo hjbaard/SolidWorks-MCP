@@ -70,8 +70,8 @@ class SolidWorksSession:
 
     def connect(self) -> dict:
         """Attach to the running SolidWorks instance and configure it for automation."""
-        self._mod = binding.module()
         self._sw = binding.connect()
+        self._mod = binding.module()
         self._configure_for_automation()
         return self.get_status()
 

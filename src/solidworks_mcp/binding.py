@@ -20,28 +20,46 @@ from win32com.client import gencache
 
 from .errors import SolidWorksError
 
-# Installed SolidWorks 2026 main typelib (sldworks.tlb), version 34.0.
+# SolidWorks main typelib (sldworks.tlb). Its major version equals the major
+# revision of the release (2026 = 34, 2025 = 33, ...), so connect() reads it from
+# the running instance instead of pinning one release.
 _SLDWORKS_TLB_GUID = "{83A33D31-27C5-11CE-BFD4-00400513BB57}"
 _SLDWORKS_TLB_LCID = 0
-_SLDWORKS_TLB_MAJOR = 34
-_SLDWORKS_TLB_MINOR = 0
 
 _mod = None
 
 
 def module():
-    """Return the generated sldworks wrapper module (ISldWorks, IModelDoc2, ...)."""
-    global _mod
+    """Return the generated sldworks wrapper module (ISldWorks, IModelDoc2, ...)
+    for the SolidWorks that connect() attached to."""
     if _mod is None:
-        _mod = gencache.EnsureModule(
-            _SLDWORKS_TLB_GUID, _SLDWORKS_TLB_LCID, _SLDWORKS_TLB_MAJOR, _SLDWORKS_TLB_MINOR
-        )
-        if _mod is None:
-            raise SolidWorksError(
-                "Kon de SolidWorks typelib-wrappers niet laden/genereren. "
-                "Is SolidWorks correct geïnstalleerd?"
-            )
+        raise SolidWorksError("Nog geen verbinding met SolidWorks; roep eerst connect() aan.")
     return _mod
+
+
+def _typelib_major(revision):
+    """Typelib major version for a SolidWorks revision string ("34.3.0" -> 34)."""
+    head = str(revision).split(".")[0]
+    if not head.isdigit():
+        raise SolidWorksError(f"Onverwacht SolidWorks-revisienummer: {revision!r}.")
+    return int(head)
+
+
+def _load_module(revision):
+    major = _typelib_major(revision)
+    try:
+        mod = gencache.EnsureModule(_SLDWORKS_TLB_GUID, _SLDWORKS_TLB_LCID, major, 0)
+    except pythoncom.com_error as exc:
+        raise SolidWorksError(
+            f"SolidWorks {revision} draait, maar de typelib (versie {major}) is niet "
+            f"geregistreerd. Repareer de SolidWorks-installatie. (COM error: {exc})"
+        )
+    if mod is None:
+        raise SolidWorksError(
+            f"Kon de SolidWorks typelib-wrappers (versie {major}) niet laden/genereren. "
+            "Is SolidWorks correct geïnstalleerd?"
+        )
+    return mod
 
 
 def wrap(obj, cls):
@@ -59,8 +77,10 @@ def wrap(obj, cls):
 def connect():
     """Attach to a running SolidWorks and return an early-bound ISldWorks.
 
+    Also loads the wrapper module matching that release, which module() returns.
     Raises SolidWorksError with a readable message if SolidWorks is not running.
     """
+    global _mod
     try:
         raw = win32com.client.GetActiveObject("SldWorks.Application")
     except pythoncom.com_error as exc:
@@ -68,6 +88,9 @@ def connect():
             "Geen draaiende SolidWorks gevonden. Start SolidWorks en probeer opnieuw. "
             f"(COM error: {exc})"
         )
-    sw = wrap(raw, module().ISldWorks)
+    # Read the revision without type info: the matching wrappers aren't loaded yet.
+    revision = win32com.client.dynamic.DumbDispatch(raw._oleobj_).RevisionNumber
+    _mod = _load_module(revision)
+    sw = wrap(raw, _mod.ISldWorks)
     sw.Visible = True
     return sw
