@@ -87,3 +87,26 @@ def test_server_starts_without_pywin32_and_tools_fail_loud():
     assert "only works on Windows" in call_text, (
         f"a tool call off Windows must fail with a readable message, got: {call_text}"
     )
+
+
+def test_server_hands_every_client_its_guidelines():
+    """Clients show a server's `instructions` to the model at connect time, and
+    list its resources: that is how the modelling guidelines reach an agent
+    without it having to find this repository first."""
+    requests = _REQUESTS[:2] + [
+        {"jsonrpc": "2.0", "id": 4, "method": "resources/list"},
+        {"jsonrpc": "2.0", "id": 5, "method": "resources/read", "params": {"uri": "solidworks://guide"}},
+    ]
+    replies, returncode, stderr = _exchange(requests, last_id=5)
+
+    assert returncode == 0 and 5 in replies, f"the server did not answer:\n{stderr}"
+    instructions = replies[1]["result"].get("instructions") or ""
+    assert "solidworks://guide" in instructions and "+z:inner" in instructions, (
+        f"the connect-time instructions miss the conventions or the pointer to the guide: {instructions!r}"
+    )
+    listed = [r["uri"] for r in replies[4]["result"]["resources"]]
+    assert "solidworks://guide" in listed, f"the guide is not listed as a resource: {listed}"
+    guide = replies[5]["result"]["contents"][0]["text"]
+    assert guide.startswith("# ") and "reverse-engineer" in guide.lower(), (
+        "the guide resource is empty or not the modelling guide"
+    )

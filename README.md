@@ -35,7 +35,7 @@ it "looks about right".
   `{ok: false, error}` with the cause, never silently wrong geometry.
 - **A fixed, typed tool surface.** There is no "run arbitrary code" tool; the
   agent can only do what the tools allow.
-- **Tested against real SolidWorks.** 207 tests; each feature's integration test
+- **Tested against real SolidWorks.** 208 tests; each feature's integration test
   compares the result with a hand calculation.
 - **Local.** It talks to your running SolidWorks over COM; the server itself
   makes no network calls.
@@ -75,6 +75,14 @@ it "looks about right".
    > Design a 100 × 80 × 8 mm mounting plate with a Ø16 mm centre bore, four
    > counterbored M5 holes 12 mm from the corners and R5 corners. Check the
    > volume against your own calculation, then export a fine STL.
+
+## Guidelines for agents
+
+The server hands every MCP client short modelling guidelines when it connects
+(conventions, verify each step, known pitfalls). The full guide is the resource
+`solidworks://guide`: recipes for holes, ribs, threads and assemblies, 3D-print
+advice, and how to reverse-engineer a part from a mesh (STL/3MF). The same text
+is in [`src/solidworks_mcp/guide.md`](https://github.com/hjbaard/SolidWorks-MCP/blob/main/src/solidworks_mcp/guide.md).
 
 ## Requirements and compatibility
 

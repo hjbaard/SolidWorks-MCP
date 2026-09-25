@@ -7,12 +7,42 @@ rather than getting an opaque stack trace.
 """
 
 import sys
+from importlib import resources
 
 from mcp.server.fastmcp import FastMCP
 
 from .errors import SolidWorksError
 
-mcp = FastMCP("solidworks-mcp")
+# Shown to the model by every MCP client at connect time, so keep it short; the
+# long version is the solidworks://guide resource.
+INSTRUCTIONS = """\
+Builds, measures and verifies parametric parts and assemblies in the user's running SolidWorks.
+
+Conventions
+- Millimetres and degrees. New geometry starts on the Front plane (XY) and extrudes along +Z from z = 0. add_box spans x 0..w, y 0..h; add_disc is centred on the origin; revolves turn about Y.
+- Faces are picked by direction: '+z', '-x', ... is the outermost face facing that way, '+z:inner' the innermost (e.g. a pocket floor). *_on_face tools take 3D points that lie on that face.
+
+Work in small verified steps
+- Every modelling call returns volume, mass and bounding box: check them against your own hand calculation after each step, and fix the first mismatch before adding more.
+- Look before selecting by index: list_faces / list_edges; screenshot to see the shape.
+- {ok: false, error} means the tool refused or SolidWorks failed; the error names the cause.
+
+Pitfalls
+- Walls shared by successive polygon cuts must use identical points: sections a few micrometres apart leave sliver faces and the next cut fails.
+- Polygon profiles have no arcs: use enough points, or revolves, splines and holes. There is no mirror: place features symmetrically.
+- SolidWorks' memory grows in long sessions: on a low-memory warning, save and restart SolidWorks (never during a run).
+
+Read the resource solidworks://guide for the full guide: recipes (holes, ribs, threads, patterns, assemblies), 3D printing, and reverse-engineering a part from a mesh.
+"""
+
+mcp = FastMCP("solidworks-mcp", instructions=INSTRUCTIONS)
+
+
+@mcp.resource("solidworks://guide", name="guide", mime_type="text/markdown",
+              description="Modelling guide: conventions, verification, recipes, 3D printing, "
+                          "reverse-engineering from a mesh, limits.")
+def guide() -> str:
+    return resources.files("solidworks_mcp").joinpath("guide.md").read_text(encoding="utf-8")
 
 
 class _NoSolidWorks:

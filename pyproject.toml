@@ -40,6 +40,9 @@ solidworks-mcp = "solidworks_mcp.server:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+solidworks_mcp = ["guide.md"]  # served as the solidworks://guide resource
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [

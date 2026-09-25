@@ -12,6 +12,9 @@ All notable changes to this project are documented here. This project follows
   (e.g. sliced from a mesh) are full of such segments.
 
 ### Added
+- Modelling guidelines for agents: short connect-time `instructions` (conventions,
+  verify-each-step, pitfalls) and the `solidworks://guide` resource with the full
+  guide, including how to reverse-engineer a part from a mesh.
 - `cut_profile_through_plane`: cut a polygon sketched on the Front, Top or Right
   plane, through all in both directions or a given depth centred on the plane.
 
