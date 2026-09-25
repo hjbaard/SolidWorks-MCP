@@ -86,7 +86,7 @@ it "looks about right".
   [open an issue](https://github.com/hjbaard/SolidWorks-MCP/issues) with the
   result, whether it worked or not.
 
-**Status: early (v0.2).** It works end-to-end, but tool names and conventions
+**Status: early (v0.3).** It works end-to-end, but tool names and conventions
 may still change. See [CHANGELOG.md](https://github.com/hjbaard/SolidWorks-MCP/blob/main/CHANGELOG.md).
 
 ## Troubleshooting
