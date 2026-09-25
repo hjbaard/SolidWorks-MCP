@@ -487,7 +487,9 @@ Verified: L-bracket 60x60x5, 40 deep (23000) + gusset legs 30/30, 4 thick at z=2
 ### M4 — Threads ✅
 `add_thread(size, x, y, z, length, internal)`: SolidWorks' own Thread feature via
 `IFeatureManager.CreateDefinition(swFmSweepThread = 87)` -> IThreadFeatureData ->
-CreateFeature. (The mirror investigation only tried type ids 4/7/12/98; 87 works.)
+CreateFeature. CreateDefinition does work on this build for the thread (87); it
+returned None for the mirror types (4 swFmMirrorSolid, 7 swFmMirrorPattern), so
+the mirror dead end stands.
 - Type 'Metric Die' / 'Metric Tap' resolves to the .sldlfp library path (empty
   string if missing); `ISldWorks.GetConfigurationNames(path)` lists the valid
   sizes (69, e.g. 'M10x1.0', 'M10x1.25', 'M10x1.5', 'M3x0.5').
