@@ -45,7 +45,7 @@ def main() -> int:
     v = hole["mass_properties"]["volume_mm3"]
     expected_v = W * H * D - CYL
     rel = abs(v - expected_v) / expected_v
-    print(f"[1] centraal gat: volume {v:.3f} mm^3 (verwacht {expected_v:.3f}), rel {rel:.1e}")
+    print(f"[1] centre hole: volume {v:.3f} mm^3 (expected {expected_v:.3f}), rel {rel:.1e}")
     if rel >= 1e-5:
         failures.append("centered volume")
     if not args.keep_open:
@@ -59,14 +59,14 @@ def main() -> int:
     ecx, ecy = expected_com(10.0, 6.0)
     okx = abs(com[0] - ecx) < 0.05
     oky = abs(com[1] - ecy) < 0.05
-    print(f"[2] off-center gat (10,6): COM {com[:2]} (verwacht ({ecx:.3f}, {ecy:.3f}))")
+    print(f"[2] off-centre hole (10,6): COM {com[:2]} (expected ({ecx:.3f}, {ecy:.3f}))")
     if not (okx and oky):
         failures.append("off-center COM (frame mirrored?)")
     if not args.keep_open:
         session.close_part()
 
     if not failures:
-        print("\nM4 hole PASS: volume + coordinatenframe kloppen.")
+        print("\nM4 hole PASS: volume and coordinate frame are correct.")
         return 0
     print(f"\nM4 hole FAIL: {failures}")
     return 1

@@ -28,14 +28,14 @@ def main() -> int:
     print(f"  sample edge: {edges['edges'][0]}")
 
     fil = session.add_fillet(2, edges="0,1")
-    print(f"fillet edges='0,1' -> {fil['edges_filleted']} randen, rebuild_ok={fil['rebuild_ok']}")
+    print(f"fillet edges='0,1' -> {fil['edges_filleted']} edges, rebuild_ok={fil['rebuild_ok']}")
 
     session.close_part()
 
     ok = (faces["count"] == 6 and planar == 6 and edges["count"] == 12 and lines == 12
           and abs(total_area - 2800.0) < 1.0 and fil["edges_filleted"] == 2)
     if ok:
-        print("\nM4 inspect PASS: list_faces/list_edges + index-selectie kloppen.")
+        print("\nM4 inspect PASS: list_faces/list_edges and index selection are correct.")
         return 0
     print("\nM4 inspect FAIL.")
     return 1

@@ -37,7 +37,7 @@ def main() -> int:
         v = cone["mass_properties"]["volume_mm3"]
         expected = frustum_volume(bd, td, h)
         rel = abs(v - expected) / expected
-        print(f"{label}: {v:.3f} mm^3 (verwacht {expected:.3f}), rel {rel:.1e}")
+        print(f"{label}: {v:.3f} mm^3 (expected {expected:.3f}), rel {rel:.1e}")
         if rel >= 1e-4:
             failures.append(label)
         if args.keep_open and i == 0:
@@ -49,7 +49,7 @@ def main() -> int:
             session.close_part()
 
     if not failures:
-        print("\nM4 cone PASS: frustum- en kegel-volume kloppen met de formule.")
+        print("\nM4 cone PASS: frustum and cone volumes match the formula.")
         return 0
     print(f"\nM4 cone FAIL: {failures}")
     return 1

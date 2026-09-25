@@ -25,7 +25,7 @@ def main() -> int:
 
     session = SolidWorksSession()
     status = session.connect()
-    print(f"OK: verbonden met SolidWorks {status['revision']}")
+    print(f"OK: connected to SolidWorks {status['revision']}")
 
     part = session.new_part()
     print(f"OK: nieuw part '{part['title']}'")
@@ -36,9 +36,9 @@ def main() -> int:
     expected = args.width * args.height * args.depth
     rel_err = abs(actual - expected) / expected
 
-    print(f"OK: blok {args.width}x{args.height}x{args.depth} mm, feature '{result['feature']}'")
+    print(f"OK: block {args.width}x{args.height}x{args.depth} mm, feature '{result['feature']}'")
     print("--- mass properties ---")
-    print(f"  volume    : {actual:.1f} mm^3  (verwacht {expected:.1f})")
+    print(f"  volume    : {actual:.1f} mm^3  (expected {expected:.1f})")
     print(f"  mass      : {props['mass_kg']:.6f} kg")
     print(f"  area      : {props['surface_area_mm2']:.1f} mm^2")
     print(f"  com       : {props['center_of_mass_mm']} mm")
@@ -46,10 +46,10 @@ def main() -> int:
 
     if not args.keep_open:
         session.close_part()
-        print("OK: document gesloten (niet opgeslagen)")
+        print("OK: document closed (not saved)")
 
     if rel_err < 1e-6:
-        print("\nM1 PASS: gemeten volume komt overeen met de handberekening.")
+        print("\nM1 PASS: the measured volume matches the hand calculation.")
         return 0
     print(f"\nM1 FAIL: volume rel. error {rel_err:.2e}")
     return 1

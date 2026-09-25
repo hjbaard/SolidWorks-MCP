@@ -22,13 +22,13 @@ def main() -> int:
     v = res["mass_properties"]["volume_mm3"]
     expected = 40 * 20 * 25
     rel = abs(v - expected) / expected
-    print(f"OK: blok start {v0:.1f} mm^3; equation '{res['equation']}' (index {res['index']})")
-    print(f"  volume na equation: {v:.1f} mm^3 (verwacht {expected}), rebuild_ok={res['rebuild_ok']}, rel {rel:.1e}")
+    print(f"OK: block starts at {v0:.1f} mm^3; equation '{res['equation']}' (index {res['index']})")
+    print(f"  volume after equation: {v:.1f} mm^3 (expected {expected}), rebuild_ok={res['rebuild_ok']}, rel {rel:.1e}")
 
     session.close_part()
 
     if abs(v0 - 8000) < 1e-6 and rel < 1e-6:
-        print("\nM4 equation PASS: equation stuurt de maat (expressie geëvalueerd).")
+        print("\nM4 equation PASS: the equation drives the dimension (expression evaluated).")
         return 0
     print("\nM4 equation FAIL.")
     return 1

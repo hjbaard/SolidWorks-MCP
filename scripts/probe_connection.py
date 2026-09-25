@@ -22,29 +22,29 @@ def main() -> int:
     try:
         sw = win32com.client.GetActiveObject("SldWorks.Application")
     except pythoncom.com_error as exc:
-        print("FAIL: kon geen draaiende SolidWorks vinden (GetActiveObject).")
+        print("FAIL: could not find a running SolidWorks (GetActiveObject).")
         print(f"  COM error: {exc}")
-        print("  -> Is SolidWorks volledig opgestart, zonder open modale dialoog?")
+        print("  -> Has SolidWorks fully started, without an open modal dialog?")
         return 1
 
     # During development we want to see every step happen live.
     sw.Visible = True
 
-    # Late binding (GetActiveObject) exposeert RevisionNumber als property-string;
-    # early binding als methode. Handel beide af.
+    # Late binding (GetActiveObject) exposes RevisionNumber as a property string;
+    # early binding as a method. Handle both.
     try:
         rev = sw.RevisionNumber
         if callable(rev):
             rev = rev()
-    except Exception as exc:  # noqa: BLE001 - API faalt vaak stil; rapporteer leesbaar
+    except Exception as exc:  # noqa: BLE001 - the API often fails silently; report readably
         rev = f"<onbekend: {exc}>"
 
-    print("OK: verbonden met SolidWorks")
+    print("OK: connected to SolidWorks")
     print(f"  RevisionNumber: {rev}")
 
     active = sw.ActiveDoc
     if active is None:
-        print("  ActiveDoc: <geen document open>")
+        print("  ActiveDoc: <no document open>")
     else:
         try:
             title = active.GetTitle()

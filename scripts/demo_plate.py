@@ -53,14 +53,14 @@ def main() -> int:
                 - math.pi * (BORE_D / 2) ** 2 * THICK
                 - N_BOLTS * math.pi * (BOLT_D / 2) ** 2 * THICK)
     ok &= check("volume vs hand calc", abs(vol - expected) / expected < 1e-4,
-                f"{vol:.1f} mm^3 (verwacht {expected:.1f})")
+                f"{vol:.1f} mm^3 (expected {expected:.1f})")
     size = mp["bounding_box_mm"]["size_mm"]
     ok &= check("bounding box", size == [W, H, THICK], str(size))
 
     print("3) FINISH: round the 4 vertical corners R8")
     fil = s.add_fillet(CORNER_R, edges="z")
     ok &= check("4 corner edges rounded", fil["edges_filleted"] == 4,
-                f"{fil['edges_filleted']} randen")
+                f"{fil['edges_filleted']} edges")
     vol_final = fil["mass_properties"]["volume_mm3"]
     ok &= check("fillet removed material", 0 < (vol - vol_final) < vol * 0.05,
                 f"{vol_final:.1f} mm^3")
@@ -75,7 +75,7 @@ def main() -> int:
 
     print(f"\n  final mass: {fil['mass_properties']['mass_kg']:.3f} kg, "
           f"volume {vol_final:.1f} mm^3")
-    print("\nDEMO PASS: plaat ontworpen, geverifieerd en geëxporteerd."
+    print("\nDEMO PASS: plate designed, verified and exported."
           if ok else "\nDEMO FAIL.")
     return 0 if ok else 1
 

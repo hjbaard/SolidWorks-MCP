@@ -25,7 +25,7 @@ def main() -> int:
     v_before = session.get_mass_properties()["mass_properties"]["volume_mm3"]
 
     saved = session.save_part(path)
-    print(f"OK: opgeslagen -> {saved['path']} ({saved['bytes']} bytes)")
+    print(f"OK: saved -> {saved['path']} ({saved['bytes']} bytes)")
     session.close_part()
 
     opened = session.open_part(path)
@@ -35,7 +35,7 @@ def main() -> int:
 
     ok = os.path.isfile(path) and abs(v_after - v_before) < 1e-6 and abs(v_before - 8000) < 1e-6
     if ok:
-        print("\nM4 save/open PASS: part overleeft de round-trip.")
+        print("\nM4 save/open PASS: the part survives the round trip.")
         return 0
     print("\nM4 save/open FAIL.")
     return 1

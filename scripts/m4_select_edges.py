@@ -30,8 +30,8 @@ def main() -> int:
     fil = session.add_fillet(args.radius, edges=args.axis)
     edges = fil["edges_filleted"]
     v = fil["mass_properties"]["volume_mm3"]
-    print(f"OK: fillet r{args.radius} op edges='{args.axis}' -> {edges} randen geselecteerd")
-    print(f"  volume: {v:.2f} mm^3  (verwijderd: {v_box - v:.2f} mm^3)")
+    print(f"OK: fillet r{args.radius} op edges='{args.axis}' -> {edges} edges selected")
+    print(f"  volume: {v:.2f} mm^3  (removed: {v_box - v:.2f} mm^3)")
 
     if args.keep_open:
         import os
@@ -41,15 +41,15 @@ def main() -> int:
         print(f"OK: screenshot -> {out}")
     else:
         session.close_part()
-        print("OK: document gesloten")
+        print("OK: document closed")
 
     # A box has exactly 4 edges parallel to each axis; material must be removed
     # (the amount scales with edge length, so only check it is positive).
     ok = edges == 4 and (v_box - v) > 0
     if ok:
-        print(f"\nM4 edge-select PASS: precies de 4 '{args.axis}'-randen afgerond.")
+        print(f"\nM4 edge-select PASS: exactly the 4 '{args.axis}' edges filleted.")
         return 0
-    print(f"\nM4 edge-select FAIL: {edges} randen (verwacht 4).")
+    print(f"\nM4 edge-select FAIL: {edges} edges (expected 4).")
     return 1
 
 

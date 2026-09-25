@@ -27,23 +27,23 @@ def main() -> int:
 
     box = session.add_box(40, 20, 10)
     v_box = box["mass_properties"]["volume_mm3"]
-    print(f"OK: blok 40x20x10 mm -> {v_box:.2f} mm^3")
+    print(f"OK: block 40x20x10 mm -> {v_box:.2f} mm^3")
 
     fil = session.add_fillet(args.radius)
     v = fil["mass_properties"]["volume_mm3"]
     edges = fil["edges_filleted"]
-    print(f"OK: fillet r{args.radius} mm op {edges} randen, feature '{fil['feature']}'")
-    print(f"  volume    : {v:.2f} mm^3  (verwijderd: {v_box - v:.2f} mm^3)")
+    print(f"OK: fillet r{args.radius} mm on {edges} edges, feature '{fil['feature']}'")
+    print(f"  volume    : {v:.2f} mm^3  (removed: {v_box - v:.2f} mm^3)")
 
     if not args.keep_open:
         session.close_part()
-        print("OK: document gesloten (niet opgeslagen)")
+        print("OK: document closed (not saved)")
 
     ok = edges == 12 and 0 < (v_box - v) < v_box * 0.1
     if args.radius == 2.0:
         ok = ok and abs(v - 7770.36) < 1.0  # regression anchor for r=2
     if ok:
-        print("\nM4 fillet PASS: alle randen afgerond, materiaal verwijderd zoals verwacht.")
+        print("\nM4 fillet PASS: all edges filleted, material removed as expected.")
         return 0
     print("\nM4 fillet FAIL.")
     return 1

@@ -33,7 +33,7 @@ def main() -> int:
         res = session.cut_profile(POCKET, depth)
         v = res["mass_properties"]["volume_mm3"]
         rel = abs(v - expected) / expected
-        print(f"{label}: {v:.2f} mm^3 (verwacht {expected}), rel {rel:.1e}")
+        print(f"{label}: {v:.2f} mm^3 (expected {expected}), rel {rel:.1e}")
         if rel >= 1e-4:
             failures.append(label)
         if args.keep_open and i == 0:
@@ -45,7 +45,7 @@ def main() -> int:
             session.close_part()
 
     if not failures:
-        print("\nM4 cut PASS: pocket-volumes (blind + doorlopend) kloppen.")
+        print("\nM4 cut PASS: pocket volumes (blind + through) are correct.")
         return 0
     print(f"\nM4 cut FAIL: {failures}")
     return 1

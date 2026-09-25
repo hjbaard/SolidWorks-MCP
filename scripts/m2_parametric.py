@@ -32,27 +32,27 @@ def main() -> int:
     dim_name = box["depth_dimension"]
     v1 = box["mass_properties"]["volume_mm3"]
     expected_v1 = args.width * args.height * args.depth
-    print(f"OK: blok gebouwd, diepte {args.depth} mm; dimensie '{dim_name}'")
-    print(f"  volume v1  : {v1:.1f} mm^3  (verwacht {expected_v1:.1f})")
+    print(f"OK: block built, depth {args.depth} mm; dimension '{dim_name}'")
+    print(f"  volume v1  : {v1:.1f} mm^3  (expected {expected_v1:.1f})")
 
     edit = session.set_dimension(dim_name, args.new_depth)
     v2 = edit["mass_properties"]["volume_mm3"]
     expected_v2 = args.width * args.height * args.new_depth
     print(f"OK: '{dim_name}' {edit['old_value_mm']:.1f} -> {edit['new_value_mm']} mm; "
           f"rebuild_ok={edit['rebuild_ok']}")
-    print(f"  volume v2  : {v2:.1f} mm^3  (verwacht {expected_v2:.1f})")
-    print(f"  ratio v2/v1: {v2 / v1:.4f}  (verwacht {args.new_depth / args.depth:.4f})")
+    print(f"  volume v2  : {v2:.1f} mm^3  (expected {expected_v2:.1f})")
+    print(f"  ratio v2/v1: {v2 / v1:.4f}  (expected {args.new_depth / args.depth:.4f})")
 
     if not args.keep_open:
         session.close_part()
-        print("OK: document gesloten (niet opgeslagen)")
+        print("OK: document closed (not saved)")
 
     err1 = abs(v1 - expected_v1) / expected_v1
     err2 = abs(v2 - expected_v2) / expected_v2
     if err1 < 1e-6 and err2 < 1e-6:
-        print("\nM2 PASS: parametrische maatwijziging propageert voorspelbaar naar het volume.")
+        print("\nM2 PASS: a parametric dimension change propagates predictably to the volume.")
         return 0
-    print(f"\nM2 FAIL: afwijking v1={err1:.2e}, v2={err2:.2e}")
+    print(f"\nM2 FAIL: deviation v1={err1:.2e}, v2={err2:.2e}")
     return 1
 
 

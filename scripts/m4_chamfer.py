@@ -26,21 +26,21 @@ def main() -> int:
 
     box = session.add_box(40, 20, 10)
     v_box = box["mass_properties"]["volume_mm3"]
-    print(f"OK: blok 40x20x10 mm -> {v_box:.2f} mm^3")
+    print(f"OK: block 40x20x10 mm -> {v_box:.2f} mm^3")
 
     cham = session.add_chamfer(args.distance)
     v = cham["mass_properties"]["volume_mm3"]
     edges = cham["edges_chamfered"]
-    print(f"OK: chamfer {args.distance} mm op {edges} randen, feature '{cham['feature']}'")
-    print(f"  volume    : {v:.2f} mm^3  (verwijderd: {v_box - v:.2f} mm^3)")
+    print(f"OK: chamfer {args.distance} mm on {edges} edges, feature '{cham['feature']}'")
+    print(f"  volume    : {v:.2f} mm^3  (removed: {v_box - v:.2f} mm^3)")
 
     if not args.keep_open:
         session.close_part()
-        print("OK: document gesloten (niet opgeslagen)")
+        print("OK: document closed (not saved)")
 
     ok = edges == 12 and 0 < (v_box - v) < v_box * 0.2
     if ok:
-        print("\nM4 chamfer PASS: alle randen afgeschuind, materiaal verwijderd zoals verwacht.")
+        print("\nM4 chamfer PASS: all edges chamfered, material removed as expected.")
         return 0
     print("\nM4 chamfer FAIL.")
     return 1

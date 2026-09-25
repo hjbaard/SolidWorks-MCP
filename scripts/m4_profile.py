@@ -36,8 +36,8 @@ def main() -> int:
     v = res["mass_properties"]["volume_mm3"]
     expected = shoelace(L_BRACKET) * DEPTH
     rel = abs(v - expected) / expected
-    print(f"OK: L-beugel ({len(L_BRACKET)} punten) geëxtrudeerd {DEPTH} mm, feature '{res['feature']}'")
-    print(f"  volume    : {v:.3f} mm^3  (verwacht {expected:.3f} = opp {shoelace(L_BRACKET):.0f} x {DEPTH}), rel {rel:.1e}")
+    print(f"OK: L-bracket ({len(L_BRACKET)} points) extruded {DEPTH} mm, feature '{res['feature']}'")
+    print(f"  volume    : {v:.3f} mm^3  (expected {expected:.3f} = area {shoelace(L_BRACKET):.0f} x {DEPTH}), rel {rel:.1e}")
 
     if args.keep_open:
         out = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -48,7 +48,7 @@ def main() -> int:
         session.close_part()
 
     if rel < 1e-4:
-        print("\nM4 profile PASS: willekeurig profiel-volume klopt met de shoelace-berekening.")
+        print("\nM4 profile PASS: the arbitrary profile volume matches the shoelace calculation.")
         return 0
     print("\nM4 profile FAIL.")
     return 1

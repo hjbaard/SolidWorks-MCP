@@ -33,8 +33,8 @@ def main() -> int:
     v = pat["mass_properties"]["volume_mm3"]
     expected = 40 * 40 * 10 - math.pi * 16 * 10 - args.count * math.pi * 9 * 10
     rel = abs(v - expected) / expected
-    print(f"OK: bout-cirkel {args.count}x rond (20,20), seed '{pat['seed']}'")
-    print(f"  volume    : {v:.3f} mm^3  (verwacht {expected:.3f}), rel {rel:.1e}")
+    print(f"OK: bolt circle {args.count}x around (20,20), seed '{pat['seed']}'")
+    print(f"  volume    : {v:.3f} mm^3  (expected {expected:.3f}), rel {rel:.1e}")
 
     if args.keep_open:
         out = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -45,7 +45,7 @@ def main() -> int:
         session.close_part()
 
     if rel < 1e-4:
-        print("\nM4 circular PASS: bout-cirkel-volume klopt.")
+        print("\nM4 circular PASS: the bolt-circle volume is correct.")
         return 0
     print("\nM4 circular FAIL.")
     return 1

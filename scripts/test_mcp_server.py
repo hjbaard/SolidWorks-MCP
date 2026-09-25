@@ -57,7 +57,7 @@ async def run() -> int:
 
             tools = await session.list_tools()
             names = sorted(t.name for t in tools.tools)
-            print(f"Tools aangeboden ({len(names)}): {', '.join(names)}")
+            print(f"Tools offered ({len(names)}): {', '.join(names)}")
 
             print("\n[1] get_status")
             r = payload(await session.call_tool("get_status", {}))
@@ -65,7 +65,7 @@ async def run() -> int:
 
             print("[2] new_part")
             r = payload(await session.call_tool("new_part", {}))
-            check("part aangemaakt", r.get("ok") is True, f"title={r.get('title')}")
+            check("part created", r.get("ok") is True, f"title={r.get('title')}")
 
             print("[3] add_box 40x20x10")
             r = payload(await session.call_tool(
@@ -73,7 +73,7 @@ async def run() -> int:
             vol1 = r.get("mass_properties", {}).get("volume_mm3", 0)
             dim_name = r.get("depth_dimension")
             check("volume == 8000 mm^3", approx(vol1, 8000.0), f"{vol1:.1f} mm^3")
-            check("depth-dimensie gerapporteerd", dim_name == "D1@BlockExtrude", str(dim_name))
+            check("depth dimension reported", dim_name == "D1@BlockExtrude", str(dim_name))
 
             print("[4] set_dimension depth -> 25 mm")
             r = payload(await session.call_tool(
@@ -82,20 +82,20 @@ async def run() -> int:
             check("rebuild ok", r.get("rebuild_ok") is True)
             check("volume == 20000 mm^3", approx(vol2, 20000.0), f"{vol2:.1f} mm^3")
 
-            print("[4b] add_hole Ø8 centraal")
+            print("[4b] add_hole Ø8 centred")
             r = payload(await session.call_tool(
                 "add_hole", {"diameter_mm": 8, "x_mm": 20, "y_mm": 10}))
             vol_hole = r.get("mass_properties", {}).get("volume_mm3", 0)
             expected_hole = 40 * 20 * 25 - math.pi * 4 ** 2 * 25  # block 40x20x25 minus Ø8 through
-            check("volume na gat", approx(vol_hole, expected_hole),
-                  f"{vol_hole:.1f} mm^3 (verwacht {expected_hole:.1f})")
+            check("volume after hole", approx(vol_hole, expected_hole),
+                  f"{vol_hole:.1f} mm^3 (expected {expected_hole:.1f})")
 
-            print("[4c] add_fillet r2 op alle randen")
+            print("[4c] add_fillet r2 on all edges")
             r = payload(await session.call_tool("add_fillet", {"radius_mm": 2}))
             vol_fil = r.get("mass_properties", {}).get("volume_mm3", 0)
-            check("fillet gebouwd", r.get("ok") is True and r.get("edges_filleted", 0) > 0,
-                  f"{r.get('edges_filleted')} randen, {vol_fil:.1f} mm^3")
-            check("materiaal verwijderd door fillet", 0 < vol_fil < vol_hole,
+            check("fillet built", r.get("ok") is True and r.get("edges_filleted", 0) > 0,
+                  f"{r.get('edges_filleted')} edges, {vol_fil:.1f} mm^3")
+            check("material removed by fillet", 0 < vol_fil < vol_hole,
                   f"{vol_fil:.1f} < {vol_hole:.1f}")
 
             print("[5] get_bounding_box")
@@ -122,13 +122,13 @@ async def run() -> int:
 
             print("[8] close_part")
             r = payload(await session.call_tool("close_part", {}))
-            check("part gesloten", r.get("ok") is True, f"closed={r.get('closed')}")
+            check("part closed", r.get("ok") is True, f"closed={r.get('closed')}")
 
     print()
     if failures:
-        print(f"MCP SERVER TEST FAIL: {len(failures)} checks faalden: {failures}")
+        print(f"MCP SERVER TEST FAIL: {len(failures)} checks failed: {failures}")
         return 1
-    print("MCP SERVER TEST PASS: volledige agent-loop werkt end-to-end.")
+    print("MCP SERVER TEST PASS: the full agent loop works end to end.")
     return 0
 
 

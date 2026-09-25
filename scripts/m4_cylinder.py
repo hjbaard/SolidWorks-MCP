@@ -33,8 +33,8 @@ def main() -> int:
     rel = abs(v - expected) / expected
     size = props["bounding_box_mm"]["size_mm"]
     print(f"OK: cilinder Ø{args.diameter} x h{args.height} mm, feature '{cyl['feature']}'")
-    print(f"  volume    : {v:.3f} mm^3  (verwacht {expected:.3f}), rel {rel:.1e}")
-    print(f"  bbox size : {size} mm  (verwacht [{args.diameter}, {args.height}, {args.diameter}])")
+    print(f"  volume    : {v:.3f} mm^3  (expected {expected:.3f}), rel {rel:.1e}")
+    print(f"  bbox size : {size} mm  (expected [{args.diameter}, {args.height}, {args.diameter}])")
 
     if args.keep_open:
         out = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -43,13 +43,13 @@ def main() -> int:
         print(f"OK: screenshot -> {out}")
     else:
         session.close_part()
-        print("OK: document gesloten")
+        print("OK: document closed")
 
     # bbox should be diameter x height x diameter (axis along Y)
     bbox_ok = (abs(size[0] - args.diameter) < 1e-3 and abs(size[1] - args.height) < 1e-3
                and abs(size[2] - args.diameter) < 1e-3)
     if rel < 1e-4 and bbox_ok:
-        print("\nM4 cylinder PASS: revolve-volume en bounding box kloppen.")
+        print("\nM4 cylinder PASS: revolve volume and bounding box are correct.")
         return 0
     print("\nM4 cylinder FAIL.")
     return 1

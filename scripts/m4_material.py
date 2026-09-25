@@ -29,15 +29,15 @@ def main() -> int:
     mass = mp["mass_kg"]
     vol = mp["volume_mm3"]
     expected_mass = vol * 1e-9 * density
-    print(f"OK: materiaal '{args.material}' toegepast")
-    print(f"  dichtheid : {density:.1f} kg/m^3  (default zou 1000 zijn)")
-    print(f"  massa     : {mass:.5f} kg  (volume {vol:.0f} mm^3 x dichtheid -> {expected_mass:.5f})")
+    print(f"OK: material '{args.material}' applied")
+    print(f"  density   : {density:.1f} kg/m^3  (the default would be 1000)")
+    print(f"  mass      : {mass:.5f} kg  (volume {vol:.0f} mm^3 x density -> {expected_mass:.5f})")
 
     session.close_part()
 
     ok = abs(density - 1000.0) > 1.0 and abs(mass - expected_mass) < 1e-6
     if ok:
-        print("\nM4 material PASS: dichtheid/massa weerspiegelen het materiaal.")
+        print("\nM4 material PASS: density and mass reflect the material.")
         return 0
     print("\nM4 material FAIL.")
     return 1

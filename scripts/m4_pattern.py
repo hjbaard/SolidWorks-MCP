@@ -33,9 +33,9 @@ def main() -> int:
     cyl = math.pi * 16 * 10
     expected = 8000 - args.count * cyl
     rel = abs(v - expected) / expected
-    print(f"OK: lineair patroon {args.count}x langs +x, spacing {args.spacing} mm")
+    print(f"OK: linear pattern {args.count}x along +x, spacing {args.spacing} mm")
     print(f"  instances : {pat['instances']}, seed '{pat['seed']}'")
-    print(f"  volume    : {v:.3f} mm^3  (verwacht {expected:.3f}, = blok - {args.count} gaten), rel {rel:.1e}")
+    print(f"  volume    : {v:.3f} mm^3  (expected {expected:.3f}, = block - {args.count} holes), rel {rel:.1e}")
 
     if args.keep_open:
         out = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -46,7 +46,7 @@ def main() -> int:
         session.close_part()
 
     if rel < 1e-4:
-        print("\nM4 pattern PASS: lineair patroon-volume klopt.")
+        print("\nM4 pattern PASS: the linear pattern volume is correct.")
         return 0
     print("\nM4 pattern FAIL.")
     return 1

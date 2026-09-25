@@ -11,6 +11,7 @@ All notable changes to this project are documented here. This project follows
   calculation (an L-bracket gusset adds exactly a*b/2 * thickness).
 
 ### Changed
+- All error messages and script output are English now (they were Dutch).
 - The server now starts and lists its tools on any OS, so MCP directories
   (Glama) can introspect it in a Linux container. Off Windows every tool call
   fails loud: SolidWorks still needs Windows. `pywin32` is a Windows-only
