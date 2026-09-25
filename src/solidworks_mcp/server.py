@@ -196,6 +196,20 @@ async def add_lofted_solid(profiles_mm: list, heights_mm: list, name: str = "Lof
 
 
 @mcp.tool()
+async def cut_profile_through_plane(points_mm: list, plane: str, depth_mm: float | None = None,
+                                    name: str = "Cut") -> dict:
+    """Cut a polygon sketched on a reference plane, symmetric about that plane.
+
+    plane: 'front' (z = 0), 'top' (y = 0) or 'right' (x = 0); points_mm = 3D
+    [x, y, z] points ON that plane (e.g. x = 0 for 'right'). Cuts through all in
+    both directions (depth_mm omitted) or depth_mm in total, centred on the
+    plane. For shapes seen from the side: wedges, windows, symmetric recesses.
+    Returns mass properties.
+    """
+    return await _call(_session.cut_profile_through_plane, points_mm, plane, depth_mm, name)
+
+
+@mcp.tool()
 async def add_thread(size: str, x_mm: float, y_mm: float, z_mm: float, length_mm: float,
                      internal: bool = False, name: str = "Thread") -> dict:
     """Cut a real, printable ISO metric thread (SolidWorks' own Thread feature).

@@ -192,6 +192,29 @@ def test_rib_hides_its_helper_plane(part):
     )
 
 
+def test_cut_through_plane_removes_a_wedge_across_the_part(part):
+    # triangle on the Right plane (x = 0), legs 5 (z) and 10 (y) -> 25 mm^2,
+    # cut through all in x across the 40-wide box: 8000 - 25*40 = 7000
+    part.add_box(40, 20, 10)
+    got = vol(part.cut_profile_through_plane([[0, 20, 10], [0, 20, 5], [0, 10, 10]], "right"))
+    assert abs(got - 7000) < 0.01
+
+
+def test_cut_through_plane_with_depth_is_centred_on_the_plane(part):
+    # 4 x 4 rectangle on the Right plane, 30 deep centred on x = 0 -> x -15..15,
+    # fully inside the Ø40 disc at y <= 9: removes 30*4*4 = 480. A one-sided
+    # 30 mm cut would be clipped by the disc edge and remove only ~290.
+    disc = vol(part.add_disc(40, 10))
+    got = vol(part.cut_profile_through_plane([[0, 5, 2], [0, 9, 2], [0, 9, 6], [0, 5, 6]], "right", 30))
+    assert abs(disc - got - 480) < 0.01, f"removed {disc - got:.3f} mm^3, a centred 30 mm cut removes 480"
+
+
+def test_cut_through_plane_rejects_a_point_off_the_plane(part):
+    part.add_box(40, 20, 10)
+    with pytest.raises(SolidWorksError):
+        part.cut_profile_through_plane([[1, 20, 10], [0, 20, 5], [0, 10, 10]], "right")
+
+
 def _iso_groove_mm3_per_mm(d, p, inner_width, outer_width):
     """Thread groove volume per mm of thread length, by hand.
 

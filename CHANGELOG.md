@@ -3,6 +3,12 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- `cut_profile_through_plane`: cut a polygon sketched on the Front, Top or Right
+  plane, through all in both directions or a given depth centred on the plane.
+
 ## [0.3.0] — 2026-09-25
 
 ### Added

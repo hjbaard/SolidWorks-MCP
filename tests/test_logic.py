@@ -207,6 +207,11 @@ def test_rib_zero_length_raises():
         SolidWorksSession._rib_material_reversed((3, 3), (3, 3), (0, 0))
 
 
+def test_cut_through_plane_unknown_plane_raises(s):
+    with pytest.raises(SolidWorksError, match="right"):
+        s.cut_profile_through_plane([[0, 0, 0], [0, 1, 0], [0, 0, 1]], "side")
+
+
 def test_thread_size_parses_diameter_and_pitch():
     assert SolidWorksSession._parse_thread_size("M10x1.5") == (10.0, 1.5)
     assert SolidWorksSession._parse_thread_size("M3x0.5") == (3.0, 0.5)

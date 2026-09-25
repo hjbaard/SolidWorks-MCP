@@ -28,6 +28,7 @@ from .constants import (
     SW_DOC_ASSEMBLY,
     SW_DOC_PART,
     SW_END_COND_BLIND,
+    SW_END_COND_MID_PLANE,
     SW_END_COND_THROUGH_ALL,
     SW_FILLET_OPT_UNIFORM_RADIUS,
     SW_FILLET_TYPE_SIMPLE,
@@ -1551,6 +1552,61 @@ class SolidWorksSession:
         )
         if cut is None:
             raise SolidWorksError(f"FeatureCut4 failed (None). Are the points on the {face} face?")
+        return self._finish_feature(cut, name)
+
+    _REF_PLANE_INDEX = {"front": 0, "top": 1, "right": 2}  # tree order in a new part
+
+    def cut_profile_through_plane(self, points_mm: list, plane: str,
+                                  depth_mm: float | None = None, name: str = "Cut") -> dict:
+        """Cut a polygon sketched on a default reference plane, symmetric about it.
+
+        plane: 'front' (z = 0), 'top' (y = 0) or 'right' (x = 0). points_mm are
+        3D [x, y, z] vertices ON that plane (e.g. x = 0 for 'right'). The cut runs
+        through all in both directions (depth_mm None), or depth_mm in total,
+        centred on the plane. For shapes seen from the side: wedges, windows and
+        recesses symmetric about the plane. Returns mass properties.
+        """
+        key = str(plane).lower()
+        if key not in self._REF_PLANE_INDEX:
+            raise SolidWorksError(f"Unknown plane '{plane}'. Use 'front', 'top' or 'right'.")
+        if depth_mm is not None and depth_mm <= 0:
+            raise SolidWorksError(f"depth must be > 0 (got {depth_mm}).")
+        model = self._require_model()
+        if not points_mm:
+            raise SolidWorksError("No profile points given.")
+
+        ref = self._ref_planes()[self._REF_PLANE_INDEX[key]]
+        model.ClearSelection2(True)
+        if not ref.Select2(False, 0):
+            raise SolidWorksError(f"Could not select the {key} plane.")
+        label = f"{key} plane"
+        sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
+        sketch = self._open_face_sketch(sk, label)
+        try:
+            uv_m = [self._model_to_sketch_uv(sketch, mm_to_m(p[0]), mm_to_m(p[1]),
+                                             mm_to_m(p[2]), label)
+                    for p in points_mm]
+            self._draw_polygon_segments(sk, self._clean_polygon(uv_m))
+            model.ClearSelection2(True)
+        finally:
+            sk.InsertSketch(True)  # close the sketch, also when a point is rejected
+
+        if depth_mm is None:
+            single, t1, t2, d1 = False, SW_END_COND_THROUGH_ALL, SW_END_COND_THROUGH_ALL, 0.0
+        else:
+            single, t1, t2, d1 = True, SW_END_COND_MID_PLANE, 0, mm_to_m(depth_mm)
+        feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
+        cut = feat_mgr.FeatureCut4(
+            single, False, False, t1, t2, d1, 0.0,
+            False, False, False, False, 0.0, 0.0,
+            False, False, False, False, False,
+            True, True, False, False, False,
+            SW_START_SKETCH_PLANE, 0.0, False, False,
+        )
+        if cut is None:
+            raise SolidWorksError(
+                f"FeatureCut4 failed (None). Does the profile on the {key} plane cross the part?"
+            )
         return self._finish_feature(cut, name)
 
     def cut_slot(self, length_mm: float, width_mm: float, x_mm: float, y_mm: float,
