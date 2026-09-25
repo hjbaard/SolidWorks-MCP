@@ -12,6 +12,14 @@ All notable changes to this project are documented here. This project follows
 - **Fresh installs crashed on start-up**: `mcp>=1.0` now resolves to mcp 2.x,
   which renamed `FastMCP`. Pinned to `mcp>=1.26,<2` (1.26–1.30 verified).
 
+### Changed
+- README rewritten: what it does and why, a gallery built by the tools
+  themselves, a one-line install via `uvx`, and an honest compatibility note.
+
+### Removed
+- `scripts/m6_demo_kamer.py`: it needed private sample parts, so nobody else
+  could run it. Assemblies stay covered by `tests/test_assembly.py`.
+
 ## [0.2.0] — 2026-09-05
 
 ### Added

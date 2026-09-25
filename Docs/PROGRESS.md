@@ -68,7 +68,8 @@ a through slot adds tangent z-parallel edges, so add_fillet(edges="z") must run
 BEFORE the slot to round only the 4 box corners.
 
 ### M6 — Assemblies ✅
-`scripts/m6_demo_kamer.py`. Nine tools: new/open/save_assembly, insert_component,
+Covered by `tests/test_assembly.py` (self-contained blocks). The room demo script
+described below was removed in 0.2.1: it needed private sample parts. Nine tools: new/open/save_assembly, insert_component,
 list_components, set_component_transform, add_mate, check_interference,
 get_assembly_bounding_box; export/screenshot/rebuild/get_mass_properties/close_part
 now serve assemblies too. Demo: three saved parts (a walled room + bed + desk)
