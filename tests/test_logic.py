@@ -207,6 +207,24 @@ def test_rib_zero_length_raises():
         SolidWorksSession._rib_material_reversed((3, 3), (3, 3), (0, 0))
 
 
+def test_thread_size_parses_diameter_and_pitch():
+    assert SolidWorksSession._parse_thread_size("M10x1.5") == (10.0, 1.5)
+    assert SolidWorksSession._parse_thread_size("M3x0.5") == (3.0, 0.5)
+    assert SolidWorksSession._parse_thread_size("M10x1.0") == (10.0, 1.0)
+
+
+@pytest.mark.parametrize("size", ["M10", "10x1.5", "M10x", "M10 x 1.5", ""])
+def test_thread_size_malformed_raises(size):
+    with pytest.raises(SolidWorksError):
+        SolidWorksSession._parse_thread_size(size)
+
+
+def test_thread_minor_diameter_is_the_iso_basic_value():
+    # ISO 724: D1 = D - 1.082532 * P, so M10x1.5 -> 8.376 and M3x0.5 -> 2.459
+    assert abs(SolidWorksSession._thread_minor_diameter(10, 1.5) - 8.376202) < 1e-5
+    assert abs(SolidWorksSession._thread_minor_diameter(3, 0.5) - 2.458734) < 1e-5
+
+
 # --- assembly placement maths (M6) -------------------------------------------
 
 

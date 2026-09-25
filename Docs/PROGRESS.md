@@ -484,6 +484,26 @@ plane. Three API facts, cracked empirically:
 Verified: L-bracket 60x60x5, 40 deep (23000) + gusset legs 30/30, 4 thick at z=20
 -> 24800 exactly (+450*4), for both end orders.
 
+### M4 — Threads ✅
+`add_thread(size, x, y, z, length, internal)`: SolidWorks' own Thread feature via
+`IFeatureManager.CreateDefinition(swFmSweepThread = 87)` -> IThreadFeatureData ->
+CreateFeature. (The mirror investigation only tried type ids 4/7/12/98; 87 works.)
+- Type 'Metric Die' / 'Metric Tap' resolves to the .sldlfp library path (empty
+  string if missing); `ISldWorks.GetConfigurationNames(path)` lists the valid
+  sizes (69, e.g. 'M10x1.0', 'M10x1.25', 'M10x1.5', 'M3x0.5').
+- **An unknown size is accepted silently** (M10x1.3 -> a 19 mm^3 garbage cut), so
+  the size is validated against that list.
+- **A tapped thread follows the hole**: an Ø8.5 hole gives a different (oversized)
+  thread than the Ø8.376 ISO basic minor diameter, so internal threads require
+  D1 = D - 1.0825*P.
+- Verified by hand: groove = ISO basic trapezoid swept helically, volume per mm =
+  area * 2*pi*r_centroid / P. Die M10x1.5 x 20 mm: 267.969 vs 267.966; tap x 12 mm:
+  120.375 vs 120.449 (the tap profile is ~0.06% leaner).
+- Dead end first: a hand-built helix (IModelDoc2.InsertHelix, right-handed with
+  Clockwised=False, start at +X) + sweep. Small profiles sweep, but the ISO
+  trapezoid fails for every option tried (cut/boss, merge, turns, twist, path
+  alignment, helix radius); cause not found. The native Thread feature replaced it.
+
 ### Mirror — SHELVED (both routes blocked on this build)
 Offset reference plane creation works (InsertRefPlane, Distance constraint=8,
 metres, after selecting the Nth ref plane: order Front/Top/Right). But:

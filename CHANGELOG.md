@@ -6,6 +6,10 @@ All notable changes to this project are documented here. This project follows
 ## [Unreleased]
 
 ### Added
+- `add_thread`: real, printable ISO metric threads (external on a rod, internal in
+  a hole) via SolidWorks' own Thread feature. The size is checked against the
+  thread-profile library, because SolidWorks silently cuts a meaningless groove
+  for an unknown size. Verified against a hand calculation of the ISO groove.
 - `add_rib`: a straight rib / gusset in a plane parallel to the Front plane,
   grown toward a given point until it meets the part. Verified against a hand
   calculation (an L-bracket gusset adds exactly a*b/2 * thickness).

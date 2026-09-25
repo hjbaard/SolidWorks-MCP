@@ -12,26 +12,30 @@ it "looks about right".
 <!-- mcp-name: io.github.hjbaard/solidworks-mcp -->
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/hjbaard/SolidWorks-MCP/main/Docs/images/bracket.png" width="24%" alt="3D-print mounting bracket with counterbored holes, bolt circle and cable slot">
-  <img src="https://raw.githubusercontent.com/hjbaard/SolidWorks-MCP/main/Docs/images/vase.png" width="24%" alt="Revolved and shelled vase">
-  <img src="https://raw.githubusercontent.com/hjbaard/SolidWorks-MCP/main/Docs/images/pipe.png" width="24%" alt="Swept pipe with rounded bends">
-  <img src="https://raw.githubusercontent.com/hjbaard/SolidWorks-MCP/main/Docs/images/loft.png" width="24%" alt="Lofted and shelled horn">
+  <img src="https://raw.githubusercontent.com/hjbaard/SolidWorks-MCP/main/Docs/images/bracket.png" width="32%" alt="3D-print mounting bracket with counterbored holes, bolt circle and cable slot">
+  <img src="https://raw.githubusercontent.com/hjbaard/SolidWorks-MCP/main/Docs/images/thread.png" width="32%" alt="M10 bolt with a real, printable ISO metric thread">
+  <img src="https://raw.githubusercontent.com/hjbaard/SolidWorks-MCP/main/Docs/images/vase.png" width="32%" alt="Revolved and shelled vase">
 </p>
-<p align="center"><sub>Built by the tools themselves: a mounting bracket (every step checked against a hand calculation), a revolved + shelled vase, a swept pipe, a lofted + shelled horn.</sub></p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/hjbaard/SolidWorks-MCP/main/Docs/images/pipe.png" width="32%" alt="Swept pipe with rounded bends">
+  <img src="https://raw.githubusercontent.com/hjbaard/SolidWorks-MCP/main/Docs/images/loft.png" width="32%" alt="Lofted and shelled horn">
+</p>
+<p align="center"><sub>Built by the tools themselves: a mounting bracket (every step checked against a hand calculation), an M10 bolt with a real thread, a revolved + shelled vase, a swept pipe, a lofted + shelled horn.</sub></p>
 
 ## Why this server
 
 - **It verifies, not just generates.** Features report measured geometry;
   dimensions and mates are measured back after the rebuild.
 - **Real CAD, not just primitives.** Extrude, revolve, sweep, loft and splines;
-  holes, counterbores, slots and pockets on any face; fillets, chamfers, shells,
-  patterns, ribs, equations and materials. Assemblies with mates and interference
-  checks. STEP/STL/3MF export and screenshots. 46 tools in total.
+  holes, counterbores, slots and pockets on any face; real ISO metric threads;
+  fillets, chamfers, shells, patterns, ribs, equations and materials. Assemblies
+  with mates and interference checks. STEP/STL/3MF export and screenshots.
+  47 tools in total.
 - **It fails loud.** A call that cannot do what was asked returns
   `{ok: false, error}` with the cause, never silently wrong geometry.
 - **A fixed, typed tool surface.** There is no "run arbitrary code" tool; the
   agent can only do what the tools allow.
-- **Tested against real SolidWorks.** 187 tests; each feature's integration test
+- **Tested against real SolidWorks.** 200 tests; each feature's integration test
   compares the result with a hand calculation.
 - **Local.** It talks to your running SolidWorks over COM; the server itself
   makes no network calls.
@@ -176,6 +180,7 @@ The server speaks MCP over **stdio**.
 | `add_extruded_spline(points_mm, depth_mm, name)` | Extrude a smooth closed spline through points (free-form/organic outlines) |
 | `add_hole(diameter_mm, x_mm, y_mm, name)` | Cut a circular through-hole at (x, y) through the depth axis |
 | `add_counterbore_hole(clearance_diameter_mm, cbore_diameter_mm, cbore_depth_mm, x_mm, y_mm, name)` | Counterbored screw hole (flush cap-head / heat-set insert) on +Z |
+| `add_thread(size, x_mm, y_mm, z_mm, length_mm, internal, name)` | Real, printable ISO metric thread (e.g. `M10x1.5`) from a rod's end edge or a hole's mouth, via SolidWorks' Thread feature; the size is checked against the thread profiles. Internal: drill the basic minor diameter first (M10x1.5 → Ø8.376) |
 | `add_hole_on_face(diameter_mm, face, x_mm, y_mm, z_mm, name)` | Through-hole on ANY planar face at a 3D point (side holes, etc.) |
 | `cut_profile(points_mm, depth_mm, name)` | Cut a polygon pocket/slot from the +Z face (blind or through) |
 | `cut_profile_on_face(points_mm, face, depth_mm, name)` | Cut a polygon pocket on ANY face (3D points on the face) |

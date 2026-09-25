@@ -192,6 +192,67 @@ def test_rib_hides_its_helper_plane(part):
     )
 
 
+def _iso_groove_mm3_per_mm(d, p, inner_width, outer_width):
+    """Thread groove volume per mm of thread length, by hand.
+
+    The groove is the ISO basic trapezoid (depth 5*sqrt(3)/16 * P, from the minor
+    to the major radius) swept along a helix. A profile in a plane through the
+    axis, swept helically, fills area * (centroid circumference) per turn, so per
+    mm of length: area * 2*pi*r_centroid / P.
+    """
+    h = 5 * math.sqrt(3) / 16 * p
+    area = (inner_width + outer_width) / 2 * h
+    r_centroid = (d / 2 - h) + h * (inner_width + 2 * outer_width) / (3 * (inner_width + outer_width))
+    return area * 2 * math.pi * r_centroid / p
+
+
+def test_external_thread_cuts_the_iso_groove(part):
+    # M10x1.5 on a Ø10 rod, 20 mm from the top face: the groove is the nut's
+    # tooth, P/4 wide at the minor radius and 7P/8 at the major radius
+    rod = vol(part.add_disc(10, 40))
+    removed = rod - vol(part.add_thread("M10x1.5", 0, 0, 40, 20))
+    expected = 20 * _iso_groove_mm3_per_mm(10, 1.5, 1.5 / 4, 7 * 1.5 / 8)
+    assert abs(removed - expected) < 0.001 * expected, (
+        f"removed {removed:.3f} mm^3; an M10x1.5 groove over 20 mm is {expected:.3f}"
+    )
+
+
+def test_internal_thread_cuts_the_iso_groove(part):
+    # M10x1.5 in a hole of the ISO basic minor diameter (10 - 1.082532*1.5),
+    # 12 mm deep: the groove is the bolt's tooth, 3P/4 wide inside, P/8 outside
+    part.add_box(30, 30, 20)
+    block = vol(part.add_hole(8.376202, 15, 15))
+    removed = block - vol(part.add_thread("M10x1.5", 15, 15, 20, 12, internal=True))
+    expected = 12 * _iso_groove_mm3_per_mm(10, 1.5, 3 * 1.5 / 4, 1.5 / 8)
+    # SolidWorks' tap profile runs ~0.06% leaner than the ISO basic trapezoid
+    assert abs(removed - expected) < 0.002 * expected, (
+        f"removed {removed:.3f} mm^3; an M10x1.5 tapped groove over 12 mm is {expected:.3f}"
+    )
+
+
+def test_thread_rejects_a_size_solidworks_accepts_silently(part):
+    """SolidWorks takes 'M10x1.3' without complaint and cuts a meaningless
+    groove, so the size must be checked against the thread-profile library."""
+    part.add_disc(10, 40)
+    with pytest.raises(SolidWorksError, match="M10x1.5"):  # lists the valid M10 sizes
+        part.add_thread("M10x1.3", 0, 0, 40, 20)
+
+
+def test_internal_thread_in_a_tap_drill_hole_names_the_minor_diameter(part):
+    # SolidWorks shifts a tapped thread with the hole, so an Ø8.5 hole would
+    # give an oversized M10: refuse it and say which hole is needed
+    part.add_box(30, 30, 20)
+    part.add_hole(8.5, 15, 15)
+    with pytest.raises(SolidWorksError, match="8.376"):
+        part.add_thread("M10x1.5", 15, 15, 20, 12, internal=True)
+
+
+def test_thread_without_an_edge_at_the_point_raises(part):
+    part.add_disc(10, 40)
+    with pytest.raises(SolidWorksError):
+        part.add_thread("M10x1.5", 30, 30, 40, 20)
+
+
 def test_rib_toward_empty_side_raises(part):
     # toward a point outside the bracket: nothing for the rib to grow into
     part.add_extruded_profile(L_BRACKET, 40)

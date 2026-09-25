@@ -196,6 +196,22 @@ async def add_lofted_solid(profiles_mm: list, heights_mm: list, name: str = "Lof
 
 
 @mcp.tool()
+async def add_thread(size: str, x_mm: float, y_mm: float, z_mm: float, length_mm: float,
+                     internal: bool = False, name: str = "Thread") -> dict:
+    """Cut a real, printable ISO metric thread (SolidWorks' own Thread feature).
+
+    size: e.g. 'M10x1.5', 'M3x0.5', 'M10x1.0' -- checked against SolidWorks'
+    thread profiles. (x_mm, y_mm, z_mm) = centre of the circular edge where the
+    thread starts: the end face of a rod, or the mouth of a hole (internal=True).
+    It runs length_mm into the material, right-handed. External: the rod must
+    have the nominal diameter (M10 -> Ø10). Internal: drill the ISO basic minor
+    diameter first, D - 1.0825*P (M10x1.5 -> Ø8.376). Returns mass properties
+    and the thread's size, pitch and diameters.
+    """
+    return await _call(_session.add_thread, size, x_mm, y_mm, z_mm, length_mm, internal, name)
+
+
+@mcp.tool()
 async def add_rib(start_mm: list, end_mm: list, toward_mm: list, thickness_mm: float,
                   z_mm: float, name: str = "Rib") -> dict:
     """Add a straight stiffening rib / gusset in a plane parallel to the Front plane.

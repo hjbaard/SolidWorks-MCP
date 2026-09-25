@@ -11,6 +11,7 @@ green by scripts/m1_block.py and scripts/m2_parametric.py.
 
 import math
 import os
+import re
 
 import pythoncom
 import win32com.client
@@ -34,6 +35,7 @@ from .constants import (
     SW_OPEN_DOC_SILENT,
     SW_PREF_DEFAULT_TEMPLATE_ASSEMBLY,
     SW_PREF_DEFAULT_TEMPLATE_PART,
+    SW_FM_SWEEP_THREAD,
     SW_REF_PLANE_DISTANCE,
     SW_SAVE_AS_CURRENT_VERSION,
     SW_SAVE_AS_OPTIONS_SILENT,
@@ -46,8 +48,12 @@ from .constants import (
     SW_STL_QUALITY_COARSE,
     SW_STL_QUALITY_CUSTOM,
     SW_STL_QUALITY_FINE,
+    SW_THREAD_END_BLIND,
+    SW_THREAD_METHOD_CUT,
     SW_TOGGLE_INPUT_DIM_VAL_ON_CREATE,
     SW_VIEW_ISOMETRIC,
+    THREAD_PROFILE_EXTERNAL,
+    THREAD_PROFILE_INTERNAL,
 )
 from .errors import SolidWorksError
 from .units import deg_to_rad, m_to_mm, mm_to_m
@@ -1285,6 +1291,118 @@ class SolidWorksSession:
     # feature onto the face. 1 um catches any real mistake by orders of magnitude
     # while absorbing transform round-off.
     _ON_FACE_TOLERANCE_MM = 1e-3
+
+    _EDGE_POINT_TOLERANCE_MM = 0.01
+    _THREAD_DIAMETER_TOLERANCE_MM = 0.01
+
+    @staticmethod
+    def _parse_thread_size(size) -> tuple:
+        """(diameter, pitch) in mm from an ISO metric size like 'M10x1.5'; pure."""
+        match = re.fullmatch(r"M(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)", str(size))
+        if not match:
+            raise SolidWorksError(
+                f"Unknown thread size '{size}'. Use ISO metric notation like 'M10x1.5' or 'M3x0.5'."
+            )
+        return float(match.group(1)), float(match.group(2))
+
+    @staticmethod
+    def _thread_minor_diameter(diameter_mm, pitch_mm) -> float:
+        """ISO basic minor diameter D1 = D - 2 * 5*sqrt(3)/16 * P (ISO 724); pure."""
+        return diameter_mm - 5 * math.sqrt(3) / 8 * pitch_mm
+
+    def _circular_edges_at(self, x_mm, y_mm, z_mm) -> list:
+        """(raw edge, radius in mm) of every circular edge centred on (x, y, z) mm."""
+        edges = self._solid_body().GetEdges() or ()
+        if not isinstance(edges, (list, tuple)):
+            edges = [edges]
+        found = []
+        for edge_dispatch in edges:
+            curve = binding.wrap(binding.wrap(edge_dispatch, self._mod.IEdge).GetCurve(), self._mod.ICurve)
+            if curve is None or not curve.IsCircle():
+                continue
+            params = curve.CircleParams  # centre xyz, axis xyz, radius (m)
+            centre = [m_to_mm(v) for v in params[0:3]]
+            if math.dist(centre, (x_mm, y_mm, z_mm)) < self._EDGE_POINT_TOLERANCE_MM:
+                found.append((edge_dispatch, m_to_mm(params[6])))
+        return found
+
+    def add_thread(self, size: str, x_mm: float, y_mm: float, z_mm: float,
+                   length_mm: float, internal: bool = False, name: str = "Thread") -> dict:
+        """Cut a real (printable) ISO metric thread with SolidWorks' Thread feature.
+
+        size: ISO metric as SolidWorks names it, e.g. 'M10x1.5', 'M3x0.5', 'M10x1.0'.
+        (x_mm, y_mm, z_mm): centre of the circular edge where the thread starts --
+        the end face of a rod (external) or the mouth of a hole (internal); the
+        thread runs length_mm into the material, right-handed.
+        External: the rod must have the nominal diameter (M10 -> Ø10).
+        Internal: the hole must have the ISO basic minor diameter D - 1.0825*P
+        (M10x1.5 -> Ø8.376). SolidWorks shifts a tapped thread with the hole, so
+        any other hole would give a wrong thread and is refused.
+        """
+        model = self._require_model()
+        if length_mm <= 0:
+            raise SolidWorksError(f"length_mm must be > 0 (got {length_mm}).")
+        diameter, pitch = self._parse_thread_size(size)
+        needed = self._thread_minor_diameter(diameter, pitch) if internal else diameter
+        what = "hole" if internal else "rod"
+
+        edges = self._circular_edges_at(x_mm, y_mm, z_mm)
+        if not edges:
+            raise SolidWorksError(
+                f"No circular edge centred on ({x_mm:g}, {y_mm:g}, {z_mm:g}) mm. Give the centre "
+                f"of the {what}'s edge on the face where the thread starts."
+            )
+        edge, radius = min(edges, key=lambda e: abs(2 * e[1] - needed))
+        if abs(2 * radius - needed) > self._THREAD_DIAMETER_TOLERANCE_MM:
+            hint = " Drill that ISO basic minor diameter first." if internal else ""
+            raise SolidWorksError(
+                f"An {'internal' if internal else 'external'} {size} thread needs a Ø{needed:.3f} "
+                f"{what}, but the edge at ({x_mm:g}, {y_mm:g}, {z_mm:g}) is Ø{2 * radius:.3f}.{hint}"
+            )
+
+        feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
+        data = binding.wrap(feat_mgr.CreateDefinition(SW_FM_SWEEP_THREAD), self._mod.IThreadFeatureData)
+        if data is None:
+            raise SolidWorksError("CreateDefinition gave no thread definition (needs SOLIDWORKS 2016 or later).")
+        data.InitializeThreadData()
+        profile = THREAD_PROFILE_INTERNAL if internal else THREAD_PROFILE_EXTERNAL
+        data.Type = profile
+        library = data.Type  # SolidWorks resolves the name to its .sldlfp file, or '' if missing
+        if not library:
+            raise SolidWorksError(
+                f"Thread profile library '{profile}' not found "
+                "(Tools > Options > File Locations > Thread Profiles)."
+            )
+        # SolidWorks accepts ANY size string and silently cuts garbage for an unknown
+        # one, so check it against the library's configurations (one per size).
+        sizes = list(self._sw.GetConfigurationNames(library) or ())
+        if size not in sizes:
+            same = [s for s in sizes if s.startswith(f"M{diameter:g}x")]
+            raise SolidWorksError(
+                f"'{size}' is not a {profile} size. "
+                + (f"Valid M{diameter:g} sizes: {same}." if same else f"Valid sizes: {sizes}.")
+            )
+        data.Edge = edge
+        data.ThreadMethod = SW_THREAD_METHOD_CUT
+        data.Size = size
+        data.EndCondition = SW_THREAD_END_BLIND
+        data.BlindDepth = mm_to_m(length_mm)
+        data.RightHanded = True
+        thread = binding.wrap(feat_mgr.CreateFeature(data), self._mod.IFeature)
+        if thread is None:
+            raise SolidWorksError(
+                f"The thread feature failed (CreateFeature returned None). Is there "
+                f"{length_mm:g} mm of material behind the edge?"
+            )
+        return self._finish_feature(thread, name, thread={
+            "size": size,
+            "pitch_mm": pitch,
+            "major_diameter_mm": diameter,
+            "minor_diameter_mm": round(self._thread_minor_diameter(diameter, pitch), 4),
+            "length_mm": length_mm,
+            "internal": internal,
+            "right_handed": True,
+        })
 
     def _model_to_sketch_uv(self, sketch, x_m, y_m, z_m, face):
         """Map a 3D model point (m) to the active sketch's local 2D (u, v) (m).

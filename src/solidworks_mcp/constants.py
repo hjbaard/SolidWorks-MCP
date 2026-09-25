@@ -39,6 +39,15 @@ SW_SLOT_LENGTH_CENTER = 0       # length is centre-to-centre of the end arcs
 # selected reference plane (for lofts: one parallel plane per profile).
 SW_REF_PLANE_DISTANCE = 8
 
+# SolidWorks' own modelled thread: IFeatureManager.CreateDefinition(swFmSweepThread)
+# gives an IThreadFeatureData. The profile libraries (File Locations > Thread
+# Profiles) hold one configuration per valid size, e.g. 'M10x1.5'.
+SW_FM_SWEEP_THREAD = 87          # swFeatureNameID_e
+SW_THREAD_METHOD_CUT = 0         # swThreadMethod_e
+SW_THREAD_END_BLIND = 0          # swThreadEndCondition_e
+THREAD_PROFILE_EXTERNAL = "Metric Die"
+THREAD_PROFILE_INTERNAL = "Metric Tap"
+
 # STL/3MF tessellation, set as ISldWorks user preferences BEFORE SaveAs3 (the mesh
 # translator reads them at save time). These are GLOBAL/application prefs, so the
 # caller must save and restore them around the export.
