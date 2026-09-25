@@ -555,13 +555,20 @@ class SolidWorksSession:
 
         The sketch must already be open. Shared by the +Z polygon path and the
         any-face path (which supplies transformed sketch coordinates).
+        Drawn with AddToDB: otherwise SolidWorks' automatic relations snap a
+        nearly horizontal/vertical segment, which silently moves a point and
+        makes a closing segment fail outright.
         """
         n = len(pts_m)
-        for i in range(n):
-            x1, y1 = pts_m[i]
-            x2, y2 = pts_m[(i + 1) % n]
-            if not sk.CreateLine(x1, y1, 0.0, x2, y2, 0.0):
-                raise SolidWorksError(f"Could not create line segment {i}.")
+        sk.AddToDB = True
+        try:
+            for i in range(n):
+                x1, y1 = pts_m[i]
+                x2, y2 = pts_m[(i + 1) % n]
+                if not sk.CreateLine(x1, y1, 0.0, x2, y2, 0.0):
+                    raise SolidWorksError(f"Could not create line segment {i}.")
+        finally:
+            sk.AddToDB = False
 
     def _sketch_closed_polygon(self, sk, points_mm) -> None:
         """Open a sketch and draw a closed polygon from [x, y] points (mm).

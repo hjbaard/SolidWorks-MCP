@@ -5,6 +5,12 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+### Fixed
+- Polygon outlines are drawn exactly. SolidWorks' automatic relations snapped a
+  nearly horizontal or vertical segment: a middle one silently moved a point,
+  a closing one failed with 'Could not create line segment'. Real outlines
+  (e.g. sliced from a mesh) are full of such segments.
+
 ### Added
 - `cut_profile_through_plane`: cut a polygon sketched on the Front, Top or Right
   plane, through all in both directions or a given depth centred on the plane.

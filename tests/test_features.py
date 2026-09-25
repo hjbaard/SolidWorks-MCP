@@ -192,6 +192,19 @@ def test_rib_hides_its_helper_plane(part):
     )
 
 
+@pytest.mark.parametrize("points", [
+    [[20.0, 0.0], [0.0, 0.0], [0.0, 10.0], [20.007, 10.0]],   # closing segment nearly vertical
+    [[0.0, 0.0], [20.0, 0.0], [20.007, 10.0], [0.0, 10.0]],   # a middle segment nearly vertical
+])
+def test_profile_is_drawn_exactly_not_snapped(part, points):
+    """SolidWorks' automatic relations snap a nearly vertical line to vertical:
+    a closing segment then fails outright ('Could not create line segment'),
+    a middle one silently moves the point. Real outlines (meshes, splines) are
+    full of such segments. Area 200.035 mm^2 exactly, not the snapped 200."""
+    got = vol(part.add_extruded_profile(points, 5))
+    assert abs(got - 1000.175) < 0.01, f"volume {got:.3f}: the outline was snapped, not drawn as given"
+
+
 def test_cut_through_plane_removes_a_wedge_across_the_part(part):
     # triangle on the Right plane (x = 0), legs 5 (z) and 10 (y) -> 25 mm^2,
     # cut through all in x across the 40-wide box: 8000 - 25*40 = 7000
