@@ -196,6 +196,20 @@ async def add_lofted_solid(profiles_mm: list, heights_mm: list, name: str = "Lof
 
 
 @mcp.tool()
+async def add_rib(start_mm: list, end_mm: list, toward_mm: list, thickness_mm: float,
+                  z_mm: float, name: str = "Rib") -> dict:
+    """Add a straight stiffening rib / gusset in a plane parallel to the Front plane.
+
+    start_mm/end_mm = [x, y] ends of the rib's free edge (add_extruded_profile
+    coordinates); the plane sits at height z_mm. The rib grows toward toward_mm
+    (any [x, y] point on the side to fill, e.g. the inner corner of an L-bracket)
+    until it meets the part, thickness_mm thick, centred on the plane. Returns mass
+    properties: a triangular gusset with legs a and b adds a*b/2 * thickness.
+    """
+    return await _call(_session.add_rib, start_mm, end_mm, toward_mm, thickness_mm, z_mm, name)
+
+
+@mcp.tool()
 async def add_hole(diameter_mm: float, x_mm: float, y_mm: float, name: str = "Hole") -> dict:
     """Cut a circular through-hole at (x_mm, y_mm), through the part's depth axis.
 

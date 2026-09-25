@@ -469,6 +469,21 @@ IEquationMgr.Add2(count, eq, solve=True). '"D1@BlockExtrude" = 2 * 12.5' drives
 depth to 25 -> 20000 mm³ (expression evaluated). Persists a relation, unlike the
 one-off set_dimension.
 
+### M4 — Ribs ✅
+`add_rib(start, end, toward, thickness, z)`: a straight rib in a plane parallel to
+Front at z (offset plane via InsertRefPlane, hidden afterwards like the loft's).
+`IFeatureManager.InsertRib(Is2Sided=True, ..., IsNormToSketch=False)` = "parallel
+to sketch": the line is extended to the part and the rib is a slab centred on the
+plane. Three API facts, cracked empirically:
+1. **InsertRib returns void** — the new feature is found in the tree (type "Rib").
+2. **The material grows to the RIGHT of start->end** (viewed from +Z);
+   ReverseMaterialDir flips it. `toward` decides via a cross product
+   (`_rib_material_reversed`, pure/unit-tested), so the end order doesn't matter.
+3. **The wrong side fails SILENTLY** — no feature, no error — so add_rib checks
+   for the new Rib feature and fails loud.
+Verified: L-bracket 60x60x5, 40 deep (23000) + gusset legs 30/30, 4 thick at z=20
+-> 24800 exactly (+450*4), for both end orders.
+
 ### Mirror — SHELVED (both routes blocked on this build)
 Offset reference plane creation works (InsertRefPlane, Distance constraint=8,
 metres, after selecting the Nth ref plane: order Front/Top/Right). But:

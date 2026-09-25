@@ -1111,6 +1111,78 @@ class SolidWorksSession:
         model.ClearSelection2(True)
         return self._finish_feature(loft, name)
 
+    @staticmethod
+    def _rib_material_reversed(start, end, toward) -> bool:
+        """Whether InsertRib must reverse its material side to grow toward `toward`.
+
+        SolidWorks grows a rib to the RIGHT of start->end (viewed from +Z), so a
+        toward point on the left needs ReverseMaterialDir. Pure, unit-tested.
+        """
+        dx, dy = end[0] - start[0], end[1] - start[1]
+        length = math.hypot(dx, dy)
+        if length < 1e-9:
+            raise SolidWorksError("De rib-lijn heeft lengte 0: start en eind vallen samen.")
+        side = dx * (toward[1] - start[1]) - dy * (toward[0] - start[0])  # > 0: left
+        if abs(side) / length < 1e-6:
+            raise SolidWorksError(
+                "toward_mm ligt op de rib-lijn; kies een punt aan de kant die gevuld moet worden."
+            )
+        return side > 0
+
+    def add_rib(self, start_mm: list, end_mm: list, toward_mm: list, thickness_mm: float,
+                z_mm: float, name: str = "Rib") -> dict:
+        """Add a straight rib (gusset) in a plane parallel to the Front plane at z_mm.
+
+        The rib's free edge runs start_mm -> end_mm ([x, y], the same Front-plane
+        coordinates as add_extruded_profile). SolidWorks grows it toward toward_mm
+        (any point on the side to fill, e.g. an L-bracket's inner corner) until it
+        meets the part, thickness_mm thick and centred on the plane. Returns mass
+        properties: a triangular gusset with legs a and b adds a*b/2 * thickness.
+        """
+        model = self._require_model()
+        if thickness_mm <= 0:
+            raise SolidWorksError(f"thickness_mm moet > 0 zijn (kreeg {thickness_mm}).")
+        if z_mm < 0:
+            raise SolidWorksError(f"z_mm moet >= 0 zijn (kreeg {z_mm}); vlakken liggen vanaf de Front plane naar +Z.")
+        reverse = self._rib_material_reversed(start_mm, end_mm, toward_mm)
+
+        base = self._first_ref_plane()
+        if base is None or not base.Select2(False, 0):
+            raise SolidWorksError("Kon de Front plane niet selecteren.")
+        feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
+        helper_plane = None
+        if z_mm != 0:
+            if feat_mgr.InsertRefPlane(SW_REF_PLANE_DISTANCE, mm_to_m(z_mm), 0, 0.0, 0, 0.0) is None:
+                raise SolidWorksError(f"Kon geen vlak maken op z={z_mm}.")
+            helper_plane = self._last_ref_plane()
+            if helper_plane is None or not helper_plane.Select2(False, 0):
+                raise SolidWorksError(f"Kon het vlak op z={z_mm} niet selecteren.")
+        try:
+            sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
+            sk.InsertSketch(True)
+            line = sk.CreateLine(mm_to_m(start_mm[0]), mm_to_m(start_mm[1]), 0.0,
+                                 mm_to_m(end_mm[0]), mm_to_m(end_mm[1]), 0.0)
+            model.ClearSelection2(True)
+            sk.InsertSketch(True)  # close the sketch; it stays selected for the rib
+            if not line:
+                raise SolidWorksError("Kon de rib-lijn niet schetsen.")
+            before = {f.Name for f in self._iter_features()}
+            # InsertRib returns nothing, so the new feature is taken from the tree.
+            feat_mgr.InsertRib(True, False, mm_to_m(thickness_mm), 0, reverse,
+                               False, False, 0.0, False, False)
+            rib = next((f for f in self._iter_features()
+                        if f.Name not in before and f.GetTypeName2() == "Rib"), None)
+        finally:
+            if helper_plane is not None and helper_plane.Select2(False, 0):
+                model.BlankRefGeom()  # construction geometry; keep screenshots clean
+            model.ClearSelection2(True)
+        if rib is None:
+            raise SolidWorksError(
+                "Rib niet aangemaakt: aan de kant van toward_mm raakt de rib geen materiaal. "
+                "Kies toward_mm aan de kant waar het onderdeel ligt (bv. de binnenhoek)."
+            )
+        return self._finish_feature(rib, name)
+
     def _cut_circle_on_z(self, model, diameter_mm: float, x_mm: float, y_mm: float,
                          through: bool, depth_mm: float = 0.0):
         """Cut one circle on the +Z face -- through-all or blind to depth_mm.

@@ -189,6 +189,24 @@ def test_path_starts_along_x_too_few_points_raises():
         SolidWorksSession._require_path_starts_along_x([[0, 0]])
 
 
+def test_rib_material_side_follows_the_toward_point():
+    """SolidWorks grows a rib to the RIGHT of start->end unless reversed; the
+    toward point must decide, whichever order the agent gives the ends in."""
+    corner = (5, 5)
+    assert SolidWorksSession._rib_material_reversed((5, 35), (35, 5), corner) is False
+    assert SolidWorksSession._rib_material_reversed((35, 5), (5, 35), corner) is True
+
+
+def test_rib_toward_point_on_the_line_raises():
+    with pytest.raises(SolidWorksError):
+        SolidWorksSession._rib_material_reversed((0, 0), (10, 10), (5, 5))
+
+
+def test_rib_zero_length_raises():
+    with pytest.raises(SolidWorksError):
+        SolidWorksSession._rib_material_reversed((3, 3), (3, 3), (0, 0))
+
+
 # --- assembly placement maths (M6) -------------------------------------------
 
 

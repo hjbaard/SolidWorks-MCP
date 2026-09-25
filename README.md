@@ -25,13 +25,13 @@ it "looks about right".
   dimensions and mates are measured back after the rebuild.
 - **Real CAD, not just primitives.** Extrude, revolve, sweep, loft and splines;
   holes, counterbores, slots and pockets on any face; fillets, chamfers, shells,
-  patterns, equations and materials. Assemblies with mates and interference
-  checks. STEP/STL/3MF export and screenshots. 45 tools in total.
+  patterns, ribs, equations and materials. Assemblies with mates and interference
+  checks. STEP/STL/3MF export and screenshots. 46 tools in total.
 - **It fails loud.** A call that cannot do what was asked returns
   `{ok: false, error}` with the cause, never silently wrong geometry.
 - **A fixed, typed tool surface.** There is no "run arbitrary code" tool; the
   agent can only do what the tools allow.
-- **Tested against real SolidWorks.** 179 tests; each feature's integration test
+- **Tested against real SolidWorks.** 187 tests; each feature's integration test
   compares the result with a hand calculation.
 - **Local.** It talks to your running SolidWorks over COM; the server itself
   makes no network calls.
@@ -171,6 +171,7 @@ The server speaks MCP over **stdio**.
 | `add_swept_pipe(path_mm, diameter_mm, bend_radius_mm, name)` | Sweep a round profile along a 2D path with rounded bends (pipes, tubes, rods) |
 | `add_swept_profile(profile_mm, path_mm, bend_radius_mm, name)` | Sweep any closed cross-section along a 2D path (rails, gaskets, trim, channels) |
 | `add_lofted_solid(profiles_mm, heights_mm, name)` | Loft/blend 2+ polygon profiles on stacked parallel planes (transitions, adapters) |
+| `add_rib(start_mm, end_mm, toward_mm, thickness_mm, z_mm, name)` | Straight rib / gusset in a plane parallel to Front at `z_mm`, grown toward `toward_mm` until it meets the part (L-bracket gussets) |
 | `add_extruded_profile(points_mm, depth_mm, name)` | Extrude any closed polygon `[[x,y],…]` (brackets, sections) |
 | `add_extruded_spline(points_mm, depth_mm, name)` | Extrude a smooth closed spline through points (free-form/organic outlines) |
 | `add_hole(diameter_mm, x_mm, y_mm, name)` | Cut a circular through-hole at (x, y) through the depth axis |

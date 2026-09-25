@@ -170,6 +170,35 @@ def test_loft_single_profile_raises(part):
         part.add_lofted_solid([sq], [0])
 
 
+# L-bracket 60 x 60, walls 5 thick, 40 deep: (60*5 + 5*55) * 40 = 23000 mm^3.
+L_BRACKET = [[0, 0], [60, 0], [60, 5], [5, 5], [5, 60], [0, 60]]
+
+
+@pytest.mark.parametrize("start,end", [((35, 5), (5, 35)), ((5, 35), (35, 5))])
+def test_rib_gusset_fills_the_inner_corner(part, start, end):
+    # gusset from the base (y=5) to the wall (x=5) at mid-depth, 4 thick:
+    # triangle with legs 30 and 30 -> 450 mm^2 * 4 = 1800 mm^3, either end order
+    part.add_extruded_profile(L_BRACKET, 40)
+    got = vol(part.add_rib(start, end, (5, 5), 4, 20))
+    assert abs(got - 24800) < 0.5, f"gusset added {got - 23000:.1f} mm^3, expected 1800"
+
+
+def test_rib_hides_its_helper_plane(part):
+    part.add_extruded_profile(L_BRACKET, 40)
+    part.add_rib((35, 5), (5, 35), (5, 5), 4, 20)
+    helpers = part._ref_planes()[3:]  # after Front, Top and Right
+    assert len(helpers) == 1 and helpers[0].Visible == SW_VISIBILITY_HIDE, (
+        "the rib's offset plane is left visible and clutters screenshots"
+    )
+
+
+def test_rib_toward_empty_side_raises(part):
+    # toward a point outside the bracket: nothing for the rib to grow into
+    part.add_extruded_profile(L_BRACKET, 40)
+    with pytest.raises(SolidWorksError):
+        part.add_rib((35, 5), (5, 35), (50, 50), 4, 20)
+
+
 def test_round_flange(part):
     # disc + centre bore + bolt hole + 6x circular pattern = a round flange
     part.add_disc(80, 15)
