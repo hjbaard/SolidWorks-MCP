@@ -1,5 +1,8 @@
 # SolidWorks MCP
 
+[![PyPI](https://img.shields.io/pypi/v/solidworks-mcp)](https://pypi.org/project/solidworks-mcp/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/hjbaard/SolidWorks-MCP/blob/main/LICENSE)
+
 Let an AI agent (Claude, or any other MCP client) model real parametric parts and
 assemblies in **your own SolidWorks** — and **check its own work**. Every
 modelling call returns the measured volume, mass and bounding box, so the agent
@@ -42,7 +45,7 @@ it "looks about right".
    **Claude Code:**
 
    ```bash
-   claude mcp add solidworks -- uvx --from git+https://github.com/hjbaard/SolidWorks-MCP solidworks-mcp
+   claude mcp add solidworks -- uvx solidworks-mcp
    ```
 
    **Claude Desktop** (`claude_desktop_config.json`) or any other client:
@@ -52,11 +55,15 @@ it "looks about right".
      "mcpServers": {
        "solidworks": {
          "command": "uvx",
-         "args": ["--from", "git+https://github.com/hjbaard/SolidWorks-MCP", "solidworks-mcp"]
+         "args": ["solidworks-mcp"]
        }
      }
    }
    ```
+
+   It is also listed in the official
+   [MCP Registry](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.hjbaard/solidworks-mcp)
+   as `io.github.hjbaard/solidworks-mcp`.
 
 4. Ask for a part, for example:
 
