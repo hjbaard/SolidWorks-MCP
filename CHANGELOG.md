@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.1] — 2026-09-25
 
 ### Fixed
 - **Only SOLIDWORKS 2026 could connect**: the typelib version was hard-coded to
@@ -11,6 +11,10 @@ All notable changes to this project are documented here. This project follows
   registered". The version is now read from the running SolidWorks.
 - **Fresh installs crashed on start-up**: `mcp>=1.0` now resolves to mcp 2.x,
   which renamed `FastMCP`. Pinned to `mcp>=1.26,<2` (1.26–1.30 verified).
+
+### Added
+- `server.json` for the MCP Registry (`io.github.hjbaard/solidworks-mcp`) and
+  PyPI-ready package metadata.
 
 ### Changed
 - README rewritten: what it does and why, a gallery built by the tools
