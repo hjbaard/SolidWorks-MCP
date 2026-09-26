@@ -37,7 +37,10 @@ from .constants import (
     SW_PREF_DEFAULT_TEMPLATE_ASSEMBLY,
     SW_PREF_DEFAULT_TEMPLATE_PART,
     SW_FM_SWEEP_THREAD,
+    SW_FULLY_CONSTRAINED,
     SW_REF_PLANE_DISTANCE,
+    SW_SKETCH_ARC,
+    SW_SKETCH_LINE,
     SW_SAVE_AS_CURRENT_VERSION,
     SW_SAVE_AS_OPTIONS_SILENT,
     SW_SLOT_CREATION_LINE,
@@ -57,6 +60,7 @@ from .constants import (
     THREAD_PROFILE_INTERNAL,
 )
 from .errors import SolidWorksError
+from .sketch_constraints import SketchDefiner
 from .units import deg_to_rad, m_to_mm, mm_to_m
 
 
@@ -402,15 +406,21 @@ class SolidWorksSession:
             "mass_properties": self.get_mass_properties()["mass_properties"],
         }
 
+    @staticmethod
+    def _with_depth(result: dict, depth_mm) -> dict:
+        """Name a blind cut's depth among its dimensions; a through-all cut has none."""
+        if depth_mm is not None:
+            result["dimensions"]["depth"] = f"D1@{result['feature']}"
+        return result
+
     def add_box(self, width_mm: float, height_mm: float, depth_mm: float,
                 name: str = "BlockExtrude") -> dict:
         """Sketch a rectangle on the first plane and extrude it; returns mass props.
 
         The extrude feature gets the stable name `name` so its depth dimension is
         addressable as 'D1@<name>' (used by set_dimension) regardless of language.
-        NOTE: only the depth is parametric in v0. The rectangle width/height are
-        not driven dimensions, so they cannot be changed via set_dimension yet;
-        rebuild the box to resize them.
+        The sketch is fully defined: `dimensions` names the width, height and
+        depth, each changeable with set_dimension.
         """
         model = self._require_model()
         for value, label in ((width_mm, "width"), (height_mm, "height"), (depth_mm, "depth")):
@@ -423,14 +433,15 @@ class SolidWorksSession:
         if not plane.Select2(False, 0):
             raise SolidWorksError("Could not select the reference plane.")
 
+        w, h = mm_to_m(width_mm), mm_to_m(height_mm)
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
         sk.InsertSketch(True)
-        rect = sk.CreateCornerRectangle(0.0, 0.0, 0.0, mm_to_m(width_mm), mm_to_m(height_mm), 0.0)
-        model.ClearSelection2(True)
-        sk.InsertSketch(True)  # close the sketch (it stays selected for the extrude)
-        if not rect:
-            # Fail at the true root cause (empty sketch) instead of later at the extrude.
-            raise SolidWorksError("Rectangle sketch failed: CreateCornerRectangle returned no segments.")
+        try:
+            lines = self._draw_polyline(sk, [(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)])
+            sketch = self._define_sketch(sk, lines, names={("x", 1): "width", ("y", 2): "height"})
+        finally:
+            model.ClearSelection2(True)
+            sk.InsertSketch(True)  # close the sketch (it stays selected for the extrude)
 
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
         extrude = feat_mgr.FeatureExtrusion3(
@@ -451,8 +462,8 @@ class SolidWorksSession:
         )
         if extrude is None:
             raise SolidWorksError("FeatureExtrusion3 failed (None). Is the sketch valid?")
-        result = self._finish_feature(extrude, name)
-        result["depth_dimension"] = f"D1@{result['feature']}"
+        result = self._finish_feature(extrude, name, **sketch)
+        result["depth_dimension"] = result["dimensions"]["depth"] = f"D1@{result['feature']}"
         return result
 
     @staticmethod
@@ -550,36 +561,90 @@ class SolidWorksSession:
         return segs
 
     @staticmethod
-    def _draw_polygon_segments(sk, pts_m) -> None:
-        """Draw closed-polygon CreateLine segments from 2D points in METRES.
+    def _draw_polyline(sk, pts_m, closed: bool = True) -> list:
+        """Draw CreateLine segments through 2D points in METRES; return the lines.
 
-        The sketch must already be open. Shared by the +Z polygon path and the
-        any-face path (which supplies transformed sketch coordinates).
-        Drawn with AddToDB: otherwise SolidWorks' automatic relations snap a
-        nearly horizontal/vertical segment, which silently moves a point and
-        makes a closing segment fail outright.
+        The sketch must already be open; segment i runs from point i to i+1,
+        and the last back to the first when closed. Shared by the +Z polygon
+        path and the any-face path (which supplies transformed sketch
+        coordinates). Drawn with AddToDB: otherwise SolidWorks' automatic
+        relations snap a nearly horizontal/vertical segment, which silently
+        moves a point and makes a closing segment fail outright. That leaves
+        every relation to _define_sketch.
         """
         n = len(pts_m)
+        lines = []
         sk.AddToDB = True
         try:
-            for i in range(n):
+            for i in range(n if closed else n - 1):
                 x1, y1 = pts_m[i]
                 x2, y2 = pts_m[(i + 1) % n]
-                if not sk.CreateLine(x1, y1, 0.0, x2, y2, 0.0):
+                line = sk.CreateLine(x1, y1, 0.0, x2, y2, 0.0)
+                if not line:
                     raise SolidWorksError(f"Could not create line segment {i}.")
+                lines.append(line)
         finally:
             sk.AddToDB = False
+        return lines
 
-    def _sketch_closed_polygon(self, sk, points_mm) -> None:
-        """Open a sketch and draw a closed polygon from [x, y] points (mm).
+    @staticmethod
+    def _draw_centerline(sk, x1_m, y1_m, x2_m, y2_m):
+        """A revolve axis, drawn like _draw_polyline so no automatic relation lands on it."""
+        sk.AddToDB = True
+        try:
+            axis = sk.CreateCenterLine(x1_m, y1_m, 0.0, x2_m, y2_m, 0.0)
+        finally:
+            sk.AddToDB = False
+        if not axis:
+            raise SolidWorksError("Could not create the revolve axis (centerline).")
+        return axis
+
+    def _origin_point(self):
+        """The model origin as a sketch point, found via the tree (language-independent)."""
+        for feat in self._iter_features():
+            if feat.GetTypeName2() == "OriginProfileFeature":
+                points = binding.wrap(feat.GetSpecificFeature2(), self._mod.ISketch).GetSketchPoints2()
+                if points:
+                    return binding.wrap(points[0], self._mod.ISketchPoint)
+        raise SolidWorksError("The part has no origin point to dimension the sketch from.")
+
+    def _open_sketch_definer(self, sk):
+        sketch = binding.wrap(sk.ActiveSketch, self._mod.ISketch)
+        if sketch is None:
+            raise SolidWorksError("No open sketch to define.")
+        return sketch, SketchDefiner(self._model, self._mod, sk, sketch, self._origin_point())
+
+    def _define_sketch(self, sk, lines=(), circles=(), names=None) -> dict:
+        """Fully define the open sketch (see sketch_constraints).
+
+        Returns {'dimensions': {role: 'name@Sketch3'}, 'fully_defined': bool},
+        ready to merge into a tool result.
+        """
+        sketch, definer = self._open_sketch_definer(sk)
+        u0, v0, _ = self._sketch_coords(sketch, 0.0, 0.0, 0.0)  # the origin, projected
+        dims = definer.define(lines, circles, names, (m_to_mm(u0), m_to_mm(v0)))
+        return {"dimensions": dims, "fully_defined": definer.fully_defined()}
+
+    def _fix_sketch(self, sk, segments) -> dict:
+        """Freeze the open sketch's segments: for paths and splines, which have no
+        dimensions worth editing. Same result shape as _define_sketch."""
+        _, definer = self._open_sketch_definer(sk)
+        definer.fix(segments)
+        return {"dimensions": {}, "fully_defined": definer.fully_defined()}
+
+    def _sketch_closed_polygon(self, sk, points_mm) -> dict:
+        """Open a sketch, draw a closed polygon from [x, y] points (mm) and define it.
 
         Tolerant of open and explicitly-closed rings (see _clean_polygon).
+        Returns the _define_sketch result.
         """
         pts_m = [(mm_to_m(x), mm_to_m(y)) for x, y in self._clean_polygon(points_mm)]
         sk.InsertSketch(True)
-        self._draw_polygon_segments(sk, pts_m)
-        self._model.ClearSelection2(True)
-        sk.InsertSketch(True)  # close the sketch
+        try:
+            return self._define_sketch(sk, self._draw_polyline(sk, pts_m))
+        finally:
+            self._model.ClearSelection2(True)
+            sk.InsertSketch(True)  # close the sketch, also when drawing failed
 
     def _open_face_sketch(self, sk, face: str):
         """Open a sketch on the already-selected face and return it (never None).
@@ -630,7 +695,7 @@ class SolidWorksSession:
             raise SolidWorksError("Could not select the reference plane.")
 
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
-        self._sketch_closed_polygon(sk, points_mm)
+        sketch = self._sketch_closed_polygon(sk, points_mm)
 
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
         extrude = feat_mgr.FeatureExtrusion3(
@@ -644,7 +709,9 @@ class SolidWorksSession:
         )
         if extrude is None:
             raise SolidWorksError("FeatureExtrusion3 failed (None). Is the profile closed and not self-intersecting?")
-        return self._finish_feature(extrude, name)
+        result = self._finish_feature(extrude, name, **sketch)
+        result["dimensions"]["depth"] = f"D1@{result['feature']}"
+        return result
 
     def add_extruded_spline(self, points_mm: list, depth_mm: float,
                             name: str = "Spline") -> dict:
@@ -670,15 +737,18 @@ class SolidWorksSession:
 
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
         sk.InsertSketch(True)
-        coords = []
-        for x, y in pts + [pts[0]]:  # repeat the first point to close the spline
-            coords += [mm_to_m(x), mm_to_m(y), 0.0]
-        point_data = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, coords)
-        spline = sk.CreateSpline2(point_data, False)  # SimulateNaturalEnds=False
-        model.ClearSelection2(True)
-        sk.InsertSketch(True)  # close the sketch
-        if not spline:
-            raise SolidWorksError("Spline sketch failed: CreateSpline2 returned nothing.")
+        try:
+            coords = []
+            for x, y in pts + [pts[0]]:  # repeat the first point to close the spline
+                coords += [mm_to_m(x), mm_to_m(y), 0.0]
+            point_data = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, coords)
+            spline = sk.CreateSpline2(point_data, False)  # SimulateNaturalEnds=False
+            if not spline:
+                raise SolidWorksError("Spline sketch failed: CreateSpline2 returned nothing.")
+            sketch = self._fix_sketch(sk, [spline])  # its points are the design; nothing to dimension
+        finally:
+            model.ClearSelection2(True)
+            sk.InsertSketch(True)  # close the sketch
 
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
         extrude = feat_mgr.FeatureExtrusion3(
@@ -692,7 +762,9 @@ class SolidWorksSession:
         )
         if extrude is None:
             raise SolidWorksError("FeatureExtrusion3 failed (None). Is the spline closed and not self-intersecting?")
-        return self._finish_feature(extrude, name)
+        result = self._finish_feature(extrude, name, **sketch)
+        result["dimensions"]["depth"] = f"D1@{result['feature']}"
+        return result
 
     def add_disc(self, diameter_mm: float, thickness_mm: float, name: str = "Disc") -> dict:
         """Create a disc / puck / flange: a circle extruded along +Z, centred at origin.
@@ -714,11 +786,14 @@ class SolidWorksSession:
 
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
         sk.InsertSketch(True)
-        circle = sk.CreateCircleByRadius(0.0, 0.0, 0.0, mm_to_m(diameter_mm / 2.0))
-        model.ClearSelection2(True)
-        sk.InsertSketch(True)
-        if not circle:
-            raise SolidWorksError("Circle sketch failed: CreateCircleByRadius returned nothing.")
+        try:
+            circle = sk.CreateCircleByRadius(0.0, 0.0, 0.0, mm_to_m(diameter_mm / 2.0))
+            if not circle:
+                raise SolidWorksError("Circle sketch failed: CreateCircleByRadius returned nothing.")
+            sketch = self._define_sketch(sk, circles=[circle])
+        finally:
+            model.ClearSelection2(True)
+            sk.InsertSketch(True)
 
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
         extrude = feat_mgr.FeatureExtrusion3(
@@ -732,7 +807,9 @@ class SolidWorksSession:
         )
         if extrude is None:
             raise SolidWorksError("FeatureExtrusion3 failed (None).")
-        return self._finish_feature(extrude, name)
+        result = self._finish_feature(extrude, name, **sketch)
+        result["dimensions"]["thickness"] = f"D1@{result['feature']}"
+        return result
 
     def add_cylinder(self, diameter_mm: float, height_mm: float, name: str = "Revolve") -> dict:
         """Create a cylinder by revolving a rectangular profile 360 deg about an axis.
@@ -758,9 +835,13 @@ class SolidWorksSession:
         height = mm_to_m(height_mm)
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
         sk.InsertSketch(True)
-        sk.CreateCornerRectangle(0.0, 0.0, 0.0, radius, height, 0.0)
-        sk.CreateCenterLine(0.0, 0.0, 0.0, 0.0, height, 0.0)  # axis at x=0
-        sk.InsertSketch(True)  # exit sketch
+        try:
+            lines = self._draw_polyline(sk, [(0.0, 0.0), (radius, 0.0), (radius, height), (0.0, height)])
+            axis = self._draw_centerline(sk, 0.0, 0.0, 0.0, height)  # axis at x=0
+            sketch = self._define_sketch(sk, lines + [axis], names={("x", 1): "radius", ("y", 2): "height"})
+        finally:
+            model.ClearSelection2(True)
+            sk.InsertSketch(True)  # exit sketch
 
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
         revolve = feat_mgr.FeatureRevolve2(
@@ -774,7 +855,7 @@ class SolidWorksSession:
         )
         if revolve is None:
             raise SolidWorksError("FeatureRevolve2 failed (None). Is the profile valid?")
-        return self._finish_feature(revolve, name)
+        return self._finish_feature(revolve, name, **sketch)
 
     def add_cone(self, bottom_diameter_mm: float, top_diameter_mm: float,
                  height_mm: float, name: str = "Revolve") -> dict:
@@ -801,15 +882,20 @@ class SolidWorksSession:
         rb = mm_to_m(bottom_diameter_mm / 2.0)
         rt = mm_to_m(top_diameter_mm / 2.0)
         h = mm_to_m(height_mm)
+        # bottom edge, slant edge, top edge (omitted for a full cone), axis edge
+        profile = [(0.0, 0.0), (rb, 0.0), (rt, h), (0.0, h)] if rt > 1e-9 else [(0.0, 0.0), (rb, 0.0), (0.0, h)]
+        names = {("x", 1): "bottom_radius", ("y", 2): "height"}
+        if rt > 1e-9:
+            names[("x", 2)] = "top_radius"
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
         sk.InsertSketch(True)
-        sk.CreateLine(0.0, 0.0, 0.0, rb, 0.0, 0.0)   # bottom edge
-        sk.CreateLine(rb, 0.0, 0.0, rt, h, 0.0)      # slant edge (to apex if rt=0)
-        if rt > 1e-9:
-            sk.CreateLine(rt, h, 0.0, 0.0, h, 0.0)   # top edge (omitted for a full cone)
-        sk.CreateLine(0.0, h, 0.0, 0.0, 0.0, 0.0)    # axis edge (closes the profile)
-        sk.CreateCenterLine(0.0, 0.0, 0.0, 0.0, h, 0.0)  # revolve axis at x=0
-        sk.InsertSketch(True)
+        try:
+            lines = self._draw_polyline(sk, profile)
+            axis = self._draw_centerline(sk, 0.0, 0.0, 0.0, h)  # revolve axis at x=0
+            sketch = self._define_sketch(sk, lines + [axis], names=names)
+        finally:
+            model.ClearSelection2(True)
+            sk.InsertSketch(True)
 
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
         revolve = feat_mgr.FeatureRevolve2(
@@ -819,7 +905,7 @@ class SolidWorksSession:
         )
         if revolve is None:
             raise SolidWorksError("FeatureRevolve2 failed (None). Is the profile closed?")
-        return self._finish_feature(revolve, name)
+        return self._finish_feature(revolve, name, **sketch)
 
     def add_revolved_profile(self, profile_mm: list, angle_deg: float = 360.0,
                              name: str = "Revolve") -> dict:
@@ -849,9 +935,13 @@ class SolidWorksSession:
         z_vals = [z for _, z in pts]
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
         sk.InsertSketch(True)
-        self._draw_polygon_segments(sk, [(mm_to_m(r), mm_to_m(z)) for r, z in pts])
-        sk.CreateCenterLine(0.0, mm_to_m(min(z_vals)), 0.0, 0.0, mm_to_m(max(z_vals)), 0.0)
-        sk.InsertSketch(True)
+        try:
+            lines = self._draw_polyline(sk, [(mm_to_m(r), mm_to_m(z)) for r, z in pts])
+            axis = self._draw_centerline(sk, 0.0, mm_to_m(min(z_vals)), 0.0, mm_to_m(max(z_vals)))
+            sketch = self._define_sketch(sk, lines + [axis])
+        finally:
+            model.ClearSelection2(True)
+            sk.InsertSketch(True)
 
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
         revolve = feat_mgr.FeatureRevolve2(
@@ -861,15 +951,18 @@ class SolidWorksSession:
         )
         if revolve is None:
             raise SolidWorksError("FeatureRevolve2 failed (None). Is the profile closed and valid?")
-        return self._finish_feature(revolve, name)
+        return self._finish_feature(revolve, name, **sketch)
 
-    def _draw_path_on_front(self, model, path_mm, bend_radius_mm) -> str:
-        """Draw a rounded polyline path on the Front plane; return the new sketch name.
+    def _draw_path_on_front(self, model, path_mm, bend_radius_mm) -> tuple:
+        """Draw a rounded polyline path on the Front plane.
 
-        Shared by the sweep builders. Pins the sketch to the Front plane (every
-        builder selects its plane explicitly), rounds interior corners with
-        bend_radius_mm (see _round_polyline), and identifies the just-drawn sketch
-        via a ProfileFeature before/after diff.
+        Returns (the new sketch's name, its _fix_sketch result). Shared by the
+        sweep builders. Pins the sketch to the Front plane (every builder selects
+        its plane explicitly), rounds interior corners with bend_radius_mm (see
+        _round_polyline), and identifies the just-drawn sketch via a
+        ProfileFeature before/after diff. The path is fixed rather than
+        dimensioned: it is given as points, and its bends follow from them.
+        Drawn with AddToDB, so no automatic relation makes the Fix redundant.
         """
         segs = self._round_polyline(path_mm, bend_radius_mm)
         plane = self._first_ref_plane()
@@ -881,25 +974,37 @@ class SolidWorksSession:
         before = self._profile_feature_names()
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
         sk.InsertSketch(True)
-        for s in segs:
-            if s[0] == "line":
-                (x1, y1), (x2, y2) = s[1], s[2]
-                if not sk.CreateLine(mm_to_m(x1), mm_to_m(y1), 0.0, mm_to_m(x2), mm_to_m(y2), 0.0):
-                    raise SolidWorksError("Could not create a path line.")
-            else:
-                _, c, p1, p2, direction = s
-                if sk.CreateArc(mm_to_m(c[0]), mm_to_m(c[1]), 0.0,
-                                mm_to_m(p1[0]), mm_to_m(p1[1]), 0.0,
-                                mm_to_m(p2[0]), mm_to_m(p2[1]), 0.0, direction) is None:
-                    raise SolidWorksError("Could not create a path arc.")
-        sk.InsertSketch(True)  # close the path sketch
+        try:
+            drawn = []
+            sk.AddToDB = True
+            try:
+                for s in segs:
+                    if s[0] == "line":
+                        (x1, y1), (x2, y2) = s[1], s[2]
+                        seg = sk.CreateLine(mm_to_m(x1), mm_to_m(y1), 0.0, mm_to_m(x2), mm_to_m(y2), 0.0)
+                        if not seg:
+                            raise SolidWorksError("Could not create a path line.")
+                    else:
+                        _, c, p1, p2, direction = s
+                        seg = sk.CreateArc(mm_to_m(c[0]), mm_to_m(c[1]), 0.0,
+                                           mm_to_m(p1[0]), mm_to_m(p1[1]), 0.0,
+                                           mm_to_m(p2[0]), mm_to_m(p2[1]), 0.0, direction)
+                        if seg is None:
+                            raise SolidWorksError("Could not create a path arc.")
+                    drawn.append(seg)
+            finally:
+                sk.AddToDB = False
+            fixed = self._fix_sketch(sk, drawn)
+        finally:
+            model.ClearSelection2(True)
+            sk.InsertSketch(True)  # close the path sketch
 
         new_names = self._profile_feature_names() - before
         if len(new_names) != 1:
             raise SolidWorksError(
                 f"Could not identify the path just drawn (expected 1 new sketch, found {len(new_names)})."
             )
-        return new_names.pop()
+        return new_names.pop(), fixed
 
     def add_swept_pipe(self, path_mm: list, diameter_mm: float,
                        bend_radius_mm: float = 0.0, name: str = "Pipe") -> dict:
@@ -915,7 +1020,7 @@ class SolidWorksSession:
         if diameter_mm <= 0:
             raise SolidWorksError(f"diameter must be > 0 (got {diameter_mm}).")
 
-        path_name = self._draw_path_on_front(model, path_mm, bend_radius_mm)
+        path_name, path = self._draw_path_on_front(model, path_mm, bend_radius_mm)
         model.ClearSelection2(True)
         ext = binding.wrap(model.Extension, self._mod.IModelDocExtension)
         if not ext.SelectByID2(path_name, "SKETCH", 0.0, 0.0, 0.0, False, 4, None, 0):  # mark 4 = sweep path
@@ -946,7 +1051,7 @@ class SolidWorksSession:
                 "InsertProtrusionSwept4 failed (None). Is the path valid "
                 "(no overlapping bends, radius fits)?"
             )
-        return self._finish_feature(pipe, name)
+        return self._finish_feature(pipe, name, **path)
 
     @staticmethod
     def _require_path_starts_along_x(path_mm) -> None:
@@ -995,16 +1100,18 @@ class SolidWorksSession:
         before = self._profile_feature_names()
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
         sk.InsertSketch(True)
-        self._draw_polygon_segments(sk, [(mm_to_m(u), mm_to_m(v)) for u, v in prof])
-        model.ClearSelection2(True)
-        sk.InsertSketch(True)
+        try:
+            profile = self._define_sketch(sk, self._draw_polyline(sk, [(mm_to_m(u), mm_to_m(v)) for u, v in prof]))
+        finally:
+            model.ClearSelection2(True)
+            sk.InsertSketch(True)
         profile_names = self._profile_feature_names() - before
         if len(profile_names) != 1:
             raise SolidWorksError("Could not identify the profile after drawing it.")
         profile_name = profile_names.pop()
 
         # path on the Front plane (reuses the rounded-polyline path builder)
-        path_name = self._draw_path_on_front(model, path_mm, bend_radius_mm)
+        path_name, path = self._draw_path_on_front(model, path_mm, bend_radius_mm)
 
         model.ClearSelection2(True)
         ext = binding.wrap(model.Extension, self._mod.IModelDocExtension)
@@ -1038,7 +1145,8 @@ class SolidWorksSession:
                 "InsertProtrusionSwept4 failed (None). Is the profile on the Right plane "
                 "and does the path start at the origin along +X?"
             )
-        return self._finish_feature(sweep, name)
+        return self._finish_feature(sweep, name, dimensions=profile["dimensions"],
+                                    fully_defined=profile["fully_defined"] and path["fully_defined"])
 
     def add_lofted_solid(self, profiles_mm: list, heights_mm: list, name: str = "Loft") -> dict:
         """Loft (blend) 2+ closed polygon profiles on parallel planes stacked along +Z.
@@ -1072,7 +1180,8 @@ class SolidWorksSession:
 
         sketch_names = []
         helper_planes = []
-        for poly, height in zip(cleaned, heights_mm):
+        dimensions, fully_defined = {}, True
+        for k, (poly, height) in enumerate(zip(cleaned, heights_mm)):
             if not base.Select2(False, 0):
                 raise SolidWorksError("Could not select the Front plane.")
             if height != 0:
@@ -1084,10 +1193,16 @@ class SolidWorksSession:
                 if plane is None or not plane.Select2(False, 0):
                     raise SolidWorksError(f"Could not select the offset plane at z={height}.")
                 helper_planes.append(plane)
+                dimensions[f"profile{k}_height"] = self._first_dimension_name(plane)
             before = self._profile_feature_names()
             sk.InsertSketch(True)
-            self._draw_polygon_segments(sk, [(mm_to_m(x), mm_to_m(y)) for x, y in poly])
-            sk.InsertSketch(True)
+            try:
+                defined = self._define_sketch(sk, self._draw_polyline(sk, [(mm_to_m(x), mm_to_m(y)) for x, y in poly]))
+            finally:
+                model.ClearSelection2(True)
+                sk.InsertSketch(True)
+            dimensions.update({f"profile{k}_{role}": dim for role, dim in defined["dimensions"].items()})
+            fully_defined = fully_defined and defined["fully_defined"]
             new_names = self._profile_feature_names() - before
             if len(new_names) != 1:
                 raise SolidWorksError(f"Could not identify the profile at z={height}.")
@@ -1123,7 +1238,7 @@ class SolidWorksSession:
             if plane.Select2(False, 0):
                 model.BlankRefGeom()
         model.ClearSelection2(True)
-        return self._finish_feature(loft, name)
+        return self._finish_feature(loft, name, dimensions=dimensions, fully_defined=fully_defined)
 
     @staticmethod
     def _rib_material_reversed(start, end, toward) -> bool:
@@ -1174,12 +1289,13 @@ class SolidWorksSession:
         try:
             sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
             sk.InsertSketch(True)
-            line = sk.CreateLine(mm_to_m(start_mm[0]), mm_to_m(start_mm[1]), 0.0,
-                                 mm_to_m(end_mm[0]), mm_to_m(end_mm[1]), 0.0)
-            model.ClearSelection2(True)
-            sk.InsertSketch(True)  # close the sketch; it stays selected for the rib
-            if not line:
-                raise SolidWorksError("Could not sketch the rib line.")
+            try:
+                line = self._draw_polyline(sk, [(mm_to_m(start_mm[0]), mm_to_m(start_mm[1])),
+                                                (mm_to_m(end_mm[0]), mm_to_m(end_mm[1]))], closed=False)
+                sketch = self._define_sketch(sk, line)
+            finally:
+                model.ClearSelection2(True)
+                sk.InsertSketch(True)  # close the sketch; it stays selected for the rib
             before = {f.Name for f in self._iter_features()}
             # InsertRib returns nothing, so the new feature is taken from the tree.
             feat_mgr.InsertRib(True, False, mm_to_m(thickness_mm), 0, reverse,
@@ -1195,31 +1311,36 @@ class SolidWorksSession:
                 "Rib not created: on the toward_mm side the rib meets no material. "
                 "Pick toward_mm on the side where the part is (e.g. the inner corner)."
             )
-        return self._finish_feature(rib, name)
+        return self._finish_feature(rib, name, **sketch)
 
     def _cut_circle_on_z(self, model, diameter_mm: float, x_mm: float, y_mm: float,
                          through: bool, depth_mm: float = 0.0):
         """Cut one circle on the +Z face -- through-all or blind to depth_mm.
 
-        Returns the raw FeatureCut4 feature (or None on failure) so callers attach
-        their own error message. Shared by add_hole and add_counterbore_hole;
-        sketching on the selected +Z face is what makes the cut direction
-        unambiguous. (x_mm, y_mm) are in add_box coordinates.
+        Returns (the sketch's _define_sketch result, the raw FeatureCut4 feature
+        or None on failure) so callers attach their own error message. Shared
+        by add_hole and add_counterbore_hole; sketching on the selected +Z face is
+        what makes the cut direction unambiguous. (x_mm, y_mm) are in add_box
+        coordinates.
         """
         body = self._solid_body()
         self._select_planar_face(body, (0.0, 0.0, 1.0), "+Z")
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
         sk.InsertSketch(True)  # the sketch is created on the selected face
-        circle = sk.CreateCircleByRadius(
-            mm_to_m(x_mm), mm_to_m(y_mm), 0.0, mm_to_m(diameter_mm / 2.0))
-        sk.InsertSketch(True)  # close the sketch
-        if not circle:
-            raise SolidWorksError("Circle sketch failed: CreateCircleByRadius returned nothing.")
+        try:
+            circle = sk.CreateCircleByRadius(
+                mm_to_m(x_mm), mm_to_m(y_mm), 0.0, mm_to_m(diameter_mm / 2.0))
+            if not circle:
+                raise SolidWorksError("Circle sketch failed: CreateCircleByRadius returned nothing.")
+            sketch = self._define_sketch(sk, circles=[circle], names={("x", 0): "x", ("y", 0): "y"})
+        finally:
+            model.ClearSelection2(True)
+            sk.InsertSketch(True)  # close the sketch
 
         t1 = SW_END_COND_THROUGH_ALL if through else SW_END_COND_BLIND
         d1 = 0.0 if through else mm_to_m(depth_mm)
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
-        return feat_mgr.FeatureCut4(
+        return sketch, feat_mgr.FeatureCut4(
             True, False, False,                # Sd, Flip, Dir
             t1, 0,                             # T1 (end condition), T2
             d1, 0.0,                           # D1 (depth, 0 for through-all), D2
@@ -1253,12 +1374,12 @@ class SolidWorksSession:
         model = self._require_model()
         if diameter_mm <= 0:
             raise SolidWorksError(f"diameter must be > 0 (got {diameter_mm}).")
-        cut = self._cut_circle_on_z(model, diameter_mm, x_mm, y_mm, through=True)
+        sketch, cut = self._cut_circle_on_z(model, diameter_mm, x_mm, y_mm, through=True)
         if cut is None:
             raise SolidWorksError(
                 "FeatureCut4 failed (None). Is (x, y) inside the part's material?"
             )
-        return self._finish_feature(cut, name)
+        return self._finish_feature(cut, name, **sketch)
 
     def add_counterbore_hole(self, clearance_diameter_mm: float, cbore_diameter_mm: float,
                              cbore_depth_mm: float, x_mm: float, y_mm: float,
@@ -1281,16 +1402,24 @@ class SolidWorksSession:
 
         # Through clearance shank first (clean +Z face), then the blind pocket: the
         # pocket removes the annular ring around the already-cut shank.
-        shank = self._cut_circle_on_z(model, clearance_diameter_mm, x_mm, y_mm, through=True)
+        shank_sketch, shank = self._cut_circle_on_z(model, clearance_diameter_mm, x_mm, y_mm, through=True)
         if shank is None:
             raise SolidWorksError(
                 "Clearance hole (FeatureCut4) failed (None). Is (x, y) inside the material?"
             )
-        cbore = self._cut_circle_on_z(model, cbore_diameter_mm, x_mm, y_mm,
-                                      through=False, depth_mm=cbore_depth_mm)
+        cbore_sketch, cbore = self._cut_circle_on_z(model, cbore_diameter_mm, x_mm, y_mm,
+                                                    through=False, depth_mm=cbore_depth_mm)
         if cbore is None:
             raise SolidWorksError("Counterbore pocket (FeatureCut4) failed (None).")
-        return self._finish_feature(cbore, name)
+        # two sketches, one per cut: the pocket's position is its own, set it along
+        # (a centre on an origin axis has a relation there, not a dimension)
+        dimensions = {("clearance_diameter" if role == "diameter" else role): dim
+                      for role, dim in shank_sketch["dimensions"].items()}
+        dimensions.update({f"cbore_{role}": dim for role, dim in cbore_sketch["dimensions"].items()})
+        result = self._finish_feature(cbore, name, dimensions=dimensions,
+                                      fully_defined=shank_sketch["fully_defined"] and cbore_sketch["fully_defined"])
+        dimensions["cbore_depth"] = f"D1@{result['feature']}"
+        return result
 
     # A point given to add_hole_on_face / cut_profile_on_face must LIE on the
     # chosen face. ModelToSketchTransform's out-of-plane component (local[2]) is
@@ -1412,11 +1541,21 @@ class SolidWorksSession:
             "right_handed": True,
         })
 
+    def _sketch_coords(self, sketch, x_m, y_m, z_m):
+        """A 3D model point (m) in the sketch's own coordinates (u, v, w), in m.
+
+        Via ISketch.ModelToSketchTransform; w is the distance off the sketch
+        plane. The point must be a proper SAFEARRAY VARIANT -- a plain Python
+        list is mis-marshalled by CreatePoint.
+        """
+        xform = binding.wrap(sketch.ModelToSketchTransform, self._mod.IMathTransform)
+        mathutil = binding.wrap(self._sw.GetMathUtility(), self._mod.IMathUtility)
+        coords = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, [x_m, y_m, z_m])
+        p = binding.wrap(mathutil.CreatePoint(coords), self._mod.IMathPoint)
+        return binding.wrap(p.MultiplyTransform(xform), self._mod.IMathPoint).ArrayData
+
     def _model_to_sketch_uv(self, sketch, x_m, y_m, z_m, face):
         """Map a 3D model point (m) to the active sketch's local 2D (u, v) (m).
-
-        Via ISketch.ModelToSketchTransform. The point must be a proper SAFEARRAY
-        VARIANT -- a plain Python list is mis-marshalled by CreatePoint.
 
         The point must LIE on the sketch's face: local[2] is its perpendicular
         distance to the face plane, which we reject past _ON_FACE_TOLERANCE_MM so
@@ -1424,11 +1563,7 @@ class SolidWorksSession:
         face (which would place the feature at the wrong spot). `face` names the
         face in the error.
         """
-        xform = binding.wrap(sketch.ModelToSketchTransform, self._mod.IMathTransform)
-        mathutil = binding.wrap(self._sw.GetMathUtility(), self._mod.IMathUtility)
-        coords = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, [x_m, y_m, z_m])
-        p = binding.wrap(mathutil.CreatePoint(coords), self._mod.IMathPoint)
-        local = binding.wrap(p.MultiplyTransform(xform), self._mod.IMathPoint).ArrayData
+        local = self._sketch_coords(sketch, x_m, y_m, z_m)
         off_mm = m_to_mm(local[2])
         if abs(off_mm) > self._ON_FACE_TOLERANCE_MM:
             raise SolidWorksError(
@@ -1461,10 +1596,13 @@ class SolidWorksSession:
             u, v = self._model_to_sketch_uv(sketch, mm_to_m(x_mm), mm_to_m(y_mm),
                                             mm_to_m(z_mm), face)
             circle = sk.CreateCircleByRadius(u, v, 0.0, mm_to_m(diameter_mm / 2.0))
+            if not circle:
+                raise SolidWorksError("Circle sketch failed: CreateCircleByRadius returned nothing.")
+            # x/y are the face sketch's own horizontal/vertical directions
+            defined = self._define_sketch(sk, circles=[circle], names={("x", 0): "x", ("y", 0): "y"})
         finally:
+            model.ClearSelection2(True)
             sk.InsertSketch(True)  # close the sketch, also when the point is rejected
-        if not circle:
-            raise SolidWorksError("Circle sketch failed: CreateCircleByRadius returned nothing.")
 
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
         cut = feat_mgr.FeatureCut4(
@@ -1477,7 +1615,7 @@ class SolidWorksSession:
             raise SolidWorksError(
                 f"FeatureCut4 failed (None). Is ({x_mm}, {y_mm}, {z_mm}) on the {face} face?"
             )
-        return self._finish_feature(cut, name)
+        return self._finish_feature(cut, name, **defined)
 
     def cut_profile(self, points_mm: list, depth_mm: float | None = None,
                     name: str = "Cut") -> dict:
@@ -1494,7 +1632,7 @@ class SolidWorksSession:
         body = self._solid_body()
         self._select_planar_face(body, (0.0, 0.0, 1.0), "+Z")
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
-        self._sketch_closed_polygon(sk, points_mm)
+        sketch = self._sketch_closed_polygon(sk, points_mm)
 
         if depth_mm is None:
             t1, d1 = SW_END_COND_THROUGH_ALL, 0.0
@@ -1513,7 +1651,7 @@ class SolidWorksSession:
         )
         if cut is None:
             raise SolidWorksError("FeatureCut4 failed (None). Is the profile on the +Z face?")
-        return self._finish_feature(cut, name)
+        return self._with_depth(self._finish_feature(cut, name, **sketch), depth_mm)
 
     def cut_profile_on_face(self, points_mm: list, face: str,
                             depth_mm: float | None = None, name: str = "Cut") -> dict:
@@ -1537,9 +1675,10 @@ class SolidWorksSession:
             uv_m = [self._model_to_sketch_uv(sketch, mm_to_m(p[0]), mm_to_m(p[1]),
                                              mm_to_m(p[2]), face)
                     for p in points_mm]
-            self._draw_polygon_segments(sk, self._clean_polygon(uv_m))
-            model.ClearSelection2(True)
+            # x/y dimensions run along the face sketch's own axes
+            defined = self._define_sketch(sk, self._draw_polyline(sk, self._clean_polygon(uv_m)))
         finally:
+            model.ClearSelection2(True)
             sk.InsertSketch(True)  # close the sketch, also when a point is rejected
 
         if depth_mm is None:
@@ -1559,7 +1698,7 @@ class SolidWorksSession:
         )
         if cut is None:
             raise SolidWorksError(f"FeatureCut4 failed (None). Are the points on the {face} face?")
-        return self._finish_feature(cut, name)
+        return self._with_depth(self._finish_feature(cut, name, **defined), depth_mm)
 
     _REF_PLANE_INDEX = {"front": 0, "top": 1, "right": 2}  # tree order in a new part
 
@@ -1593,9 +1732,9 @@ class SolidWorksSession:
             uv_m = [self._model_to_sketch_uv(sketch, mm_to_m(p[0]), mm_to_m(p[1]),
                                              mm_to_m(p[2]), label)
                     for p in points_mm]
-            self._draw_polygon_segments(sk, self._clean_polygon(uv_m))
-            model.ClearSelection2(True)
+            defined = self._define_sketch(sk, self._draw_polyline(sk, self._clean_polygon(uv_m)))
         finally:
+            model.ClearSelection2(True)
             sk.InsertSketch(True)  # close the sketch, also when a point is rejected
 
         if depth_mm is None:
@@ -1614,7 +1753,23 @@ class SolidWorksSession:
             raise SolidWorksError(
                 f"FeatureCut4 failed (None). Does the profile on the {key} plane cross the part?"
             )
-        return self._finish_feature(cut, name)
+        return self._with_depth(self._finish_feature(cut, name, **defined), depth_mm)
+
+    def _define_slot(self, sk) -> dict:
+        """Define an open straight-slot sketch by its end-arc centres and width.
+
+        Only the construction centreline and one end arc get constraints: the
+        slot's own relations tie its straight edges and other arc to them.
+        """
+        sketch = binding.wrap(sk.ActiveSketch, self._mod.ISketch)
+        segments = [binding.wrap(s, self._mod.ISketchSegment) for s in (sketch.GetSketchSegments() or ())]
+        centreline = next((s for s in segments if s.GetType() == SW_SKETCH_LINE and s.ConstructionGeometry), None)
+        arc = next((s for s in segments if s.GetType() == SW_SKETCH_ARC), None)
+        if centreline is None or arc is None:
+            raise SolidWorksError("The slot sketch has no centreline or end arc to dimension.")
+        names = {("x", 0): "end1_x", ("y", 0): "end1_y", ("x", 1): "end2_x", ("y", 1): "end2_y",
+                 ("diameter", 0): "width"}
+        return self._define_sketch(sk, [centreline], [arc], names=names)
 
     def cut_slot(self, length_mm: float, width_mm: float, x_mm: float, y_mm: float,
                  angle_deg: float = 0.0, depth_mm: float | None = None, name: str = "Slot") -> dict:
@@ -1640,17 +1795,20 @@ class SolidWorksSession:
         self._select_planar_face(body, (0.0, 0.0, 1.0), "+Z")
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
         sk.InsertSketch(True)
-        seg = sk.CreateSketchSlot(
-            SW_SLOT_CREATION_LINE, SW_SLOT_LENGTH_CENTER, mm_to_m(width_mm),
-            mm_to_m(c1[0]), mm_to_m(c1[1]), 0.0,
-            mm_to_m(c2[0]), mm_to_m(c2[1]), 0.0,
-            mm_to_m(edge[0]), mm_to_m(edge[1]), 0.0,
-            1, False,
-        )
-        model.ClearSelection2(True)
-        sk.InsertSketch(True)
-        if not seg:
-            raise SolidWorksError("Slot sketch failed: CreateSketchSlot returned nothing.")
+        try:
+            seg = sk.CreateSketchSlot(
+                SW_SLOT_CREATION_LINE, SW_SLOT_LENGTH_CENTER, mm_to_m(width_mm),
+                mm_to_m(c1[0]), mm_to_m(c1[1]), 0.0,
+                mm_to_m(c2[0]), mm_to_m(c2[1]), 0.0,
+                mm_to_m(edge[0]), mm_to_m(edge[1]), 0.0,
+                1, False,
+            )
+            if not seg:
+                raise SolidWorksError("Slot sketch failed: CreateSketchSlot returned nothing.")
+            sketch = self._define_slot(sk)
+        finally:
+            model.ClearSelection2(True)
+            sk.InsertSketch(True)
 
         if depth_mm is None:
             t1, d1 = SW_END_COND_THROUGH_ALL, 0.0
@@ -1669,7 +1827,7 @@ class SolidWorksSession:
         )
         if cut is None:
             raise SolidWorksError("FeatureCut4 failed (None). Does the slot fit on the +Z face?")
-        return self._finish_feature(cut, name)
+        return self._with_depth(self._finish_feature(cut, name, **sketch), depth_mm)
 
     def add_fillet(self, radius_mm: float, edges: str = "all", name: str = "Fillet") -> dict:
         """Round edges of the part's solid body with one constant radius.
@@ -1824,6 +1982,16 @@ class SolidWorksSession:
                 pass
         return names
 
+    def _under_defined_sketches(self) -> list:
+        """'Sketch3 (status 2)' for every sketch in the part that is not fully defined."""
+        found = []
+        for feat in self._iter_features():
+            if feat.GetTypeName2() == "ProfileFeature":
+                status = binding.wrap(feat.GetSpecificFeature2(), self._mod.ISketch).GetConstrainedStatus()
+                if status != SW_FULLY_CONSTRAINED:
+                    found.append(f"{feat.Name} (status {status})")
+        return found
+
     def _ref_planes(self) -> list:
         """All reference planes in tree order (fresh part: [Front, Top, Right, ...])."""
         self._require_part()
@@ -1840,6 +2008,14 @@ class SolidWorksSession:
         """The most recently created reference plane (e.g. a fresh loft offset plane)."""
         planes = self._ref_planes()
         return planes[-1] if planes else None
+
+    def _first_dimension_name(self, feature) -> str:
+        """The feature's first dimension as set_dimension takes it, e.g. 'D1@Plane1'."""
+        display = feature.GetFirstDisplayDimension()
+        if display is None:
+            raise SolidWorksError(f"Feature '{feature.Name}' has no dimension.")
+        dim = binding.wrap(binding.wrap(display, self._mod.IDisplayDimension).GetDimension2(0), self._mod.IDimension)
+        return dim.GetNameForSelection()
 
     def _last_feature_name(self) -> str:
         """Name of the most recent body-modifying feature (the default pattern seed).

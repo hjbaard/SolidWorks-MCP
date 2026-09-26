@@ -66,6 +66,23 @@ SW_START_SKETCH_PLANE = 0
 SW_PREF_DEFAULT_TEMPLATE_PART = 8
 SW_PREF_DEFAULT_TEMPLATE_ASSEMBLY = 9
 
+# swConstraintType_e -- relation types for ISketchRelationManager.AddRelation,
+# which (unlike the string-keyed SketchAddConstraints) returns the relation, so a
+# refusal is detectable.
+SW_CONSTRAINT_HORIZONTAL = 4
+SW_CONSTRAINT_VERTICAL = 5
+SW_CONSTRAINT_COINCIDENT = 9
+SW_CONSTRAINT_FIXED = 17
+SW_CONSTRAINT_HORIZONTAL_POINTS = 25   # two points on one horizontal line
+SW_CONSTRAINT_VERTICAL_POINTS = 26     # two points on one vertical line
+
+# swConstrainedStatus_e (ISketch.GetConstrainedStatus)
+SW_FULLY_CONSTRAINED = 3
+
+# swSketchSegments_e (ISketchSegment.GetType)
+SW_SKETCH_LINE = 0
+SW_SKETCH_ARC = 1
+
 # --- assemblies ---------------------------------------------------------------
 
 # swAddComponentConfigOptions_e -- insert the component using the configuration

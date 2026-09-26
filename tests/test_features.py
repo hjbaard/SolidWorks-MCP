@@ -521,3 +521,98 @@ def test_export_restores_stl_prefs(part, tmp_path):
     part.add_disc(40, 10)
     part.export(str(tmp_path / "x.stl"), quality="coarse")
     assert part._sw.GetUserPreferenceIntegerValue(SW_STL_QUALITY) == before
+
+
+# --- fully defined sketches: the returned dimensions drive the geometry --------
+# The part fixture already fails any test whose sketches are under-defined; these
+# prove the dimensions are the right ones: changing one gives the volume a hand
+# calculation predicts for exactly that change.
+
+def test_box_width_and_height_are_dimensions(part):
+    dims = part.add_box(40, 20, 10)["dimensions"]
+    assert abs(vol(part.set_dimension(dims["width"], 50)) - 50 * 20 * 10) < 0.01, "'width' does not drive the width"
+    assert abs(vol(part.set_dimension(dims["height"], 30)) - 50 * 30 * 10) < 0.01, "'height' does not drive the height"
+
+
+def test_hole_diameter_and_position_are_dimensions(part):
+    part.add_box(40, 20, 10)
+    hole = part.add_hole(8, 20, 10)
+    assert hole["fully_defined"] is True
+    got = vol(part.set_dimension(hole["dimensions"]["diameter"], 10))
+    assert abs(got - (8000 - math.pi * 25 * 10)) < 0.1, "'diameter' does not drive the hole size"
+    com = part.set_dimension(hole["dimensions"]["x"], 10)["mass_properties"]["center_of_mass_mm"]
+    assert com[0] > 20, "moving the hole to x=10 must shift the material's centre of mass to +x"
+
+
+def test_profile_gets_one_dimension_per_distinct_edge_position(part):
+    # L-bracket 1800 mm^2: vertical walls at x=60 and x=20, horizontal at y=20
+    # and y=50 (x=0 and y=0 sit on the origin). Moving the x=60 wall to 70 adds
+    # 10 x 20 mm^2 of profile.
+    result = part.add_extruded_profile([[0, 0], [60, 0], [60, 20], [20, 20], [20, 50], [0, 50]], 10)
+    dims = result["dimensions"]
+    assert set(dims) == {"x1", "x3", "y2", "y4", "depth"}, f"unexpected dimensions {sorted(dims)}"
+    assert abs(vol(part.set_dimension(dims["x1"], 70)) - 20000) < 0.01, "'x1' does not move the x=60 wall"
+
+
+def test_cylinder_radius_is_a_dimension(part):
+    dims = part.add_cylinder(20, 20)["dimensions"]
+    assert abs(vol(part.set_dimension(dims["radius"], 15)) - math.pi * 225 * 20) < 0.1, "'radius' does not drive the radius"
+
+
+def test_cone_top_radius_is_a_dimension(part):
+    dims = part.add_cone(20, 10, 20)["dimensions"]
+    rb, rt, h = 10, 7.5, 20
+    expected = math.pi * h / 3 * (rb * rb + rb * rt + rt * rt)
+    assert abs(vol(part.set_dimension(dims["top_radius"], 7.5)) - expected) < 0.1, "'top_radius' does not drive the top"
+
+
+def test_revolved_ring_outer_radius_is_a_dimension(part):
+    dims = part.add_revolved_profile([[5, 0], [10, 0], [10, 2], [5, 2]])["dimensions"]
+    assert abs(vol(part.set_dimension(dims["x1"], 12)) - math.pi * (12 ** 2 - 5 ** 2) * 2) < 0.1, "'x1' does not drive the outer radius"
+
+
+def test_slot_width_is_a_dimension(part):
+    part.add_box(40, 20, 10)
+    dims = part.cut_slot(20, 10, 20, 10, 0, 5)["dimensions"]
+    area = 20 * 8 + math.pi * 4 ** 2
+    assert abs(vol(part.set_dimension(dims["width"], 8)) - (8000 - area * 5)) < 0.5, "'width' does not drive the slot width"
+
+
+def test_counterbore_diameter_is_a_dimension(part):
+    part.add_box(40, 20, 10)
+    dims = part.add_counterbore_hole(5, 10, 4, 20, 10)["dimensions"]
+    removed = math.pi * 2.5 ** 2 * 10 + math.pi * (6 ** 2 - 2.5 ** 2) * 4
+    assert abs(vol(part.set_dimension(dims["cbore_diameter"], 12)) - (8000 - removed)) < 0.5, "'cbore_diameter' does not drive the pocket"
+
+
+def test_hole_on_face_diameter_is_a_dimension(part):
+    part.add_box(40, 20, 10)
+    dims = part.add_hole_on_face(8, "+x", 40, 10, 5)["dimensions"]
+    assert abs(vol(part.set_dimension(dims["diameter"], 6)) - (8000 - math.pi * 9 * 40)) < 0.1, "'diameter' does not drive the hole size"
+
+
+def test_loft_profile_height_is_a_dimension(part):
+    # the 40 -> 20 square prismatoid scales linearly with its height: 28000 at 30
+    sq_a = [[-20, -20], [20, -20], [20, 20], [-20, 20]]
+    sq_b = [[-10, -10], [10, -10], [10, 10], [-10, 10]]
+    dims = part.add_lofted_solid([sq_a, sq_b], [0, 30])["dimensions"]
+    assert abs(vol(part.set_dimension(dims["profile1_height"], 60)) - 56000) < 2.0, "'profile1_height' does not move the top profile"
+
+
+def test_global_variable_drives_a_sketch_dimension(part):
+    # the guide's recipe: one number, several dimensions
+    dims = part.add_box(40, 20, 10)["dimensions"]
+    part.set_equation('"W" = 50')
+    got = vol(part.set_equation(f'"{dims["width"]}" = "W"'))
+    assert abs(got - 50 * 20 * 10) < 0.01, "the global variable does not drive the box width"
+
+
+def test_profile_with_many_points_is_fixed_not_dimensioned(part):
+    # 32 points (a mesh-like outline): dimensioning it would take seconds per
+    # point and nobody edits that; it must be frozen, yet fully defined
+    n, r = 32, 10.0
+    ring = [[r * math.cos(2 * math.pi * k / n), r * math.sin(2 * math.pi * k / n)] for k in range(n)]
+    result = part.add_extruded_profile(ring, 5)
+    assert result["fully_defined"] is True
+    assert set(result["dimensions"]) == {"depth"}
+    assert abs(vol(result) - n / 2 * r * r * math.sin(2 * math.pi / n) * 5) < 0.01

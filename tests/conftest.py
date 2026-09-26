@@ -31,13 +31,24 @@ def sw():
 
 @pytest.fixture
 def part(sw):
-    """A fresh empty part for one test; closed afterwards."""
+    """A fresh empty part for one test; closed afterwards.
+
+    Every tool must leave its sketches fully defined, so a stray drag in
+    SolidWorks cannot move the geometry. Checking that here holds every part
+    test to it, whatever the test itself asserts.
+    """
     sw.new_part()
     yield sw
+    under_defined = []
     try:
-        sw.close_part()
-    except SolidWorksError:
-        pass
+        if sw._model is not None:
+            under_defined = sw._under_defined_sketches()
+    finally:
+        try:
+            sw.close_part()
+        except SolidWorksError:
+            pass
+    assert not under_defined, f"a tool left under-defined sketches (shown with (-) in SolidWorks): {under_defined}"
 
 
 # --- assemblies ---------------------------------------------------------------
