@@ -26,6 +26,11 @@ it "looks about right".
 
 - **It verifies, not just generates.** Features report measured geometry;
   dimensions and mates are measured back after the rebuild.
+- **Fully defined sketches.** Every sketch is constrained the way a designer
+  would: dimensions from the origin, relations only where the geometry is
+  exactly horizontal, vertical or on the origin. Tools return their dimensions
+  by role (`width@Sketch1`), so the part stays editable, in SolidWorks or
+  through the agent.
 - **Real CAD, not just primitives.** Extrude, revolve, sweep, loft and splines;
   holes, counterbores, slots and pockets on any face; real ISO metric threads;
   fillets, chamfers, shells, patterns, ribs, equations and materials. Assemblies
@@ -35,7 +40,7 @@ it "looks about right".
   `{ok: false, error}` with the cause, never silently wrong geometry.
 - **A fixed, typed tool surface.** There is no "run arbitrary code" tool; the
   agent can only do what the tools allow.
-- **Tested against real SolidWorks.** 208 tests; each feature's integration test
+- **Tested against real SolidWorks.** 253 tests; each feature's integration test
   compares the result with a hand calculation.
 - **Local.** It talks to your running SolidWorks over COM; the server itself
   makes no network calls.
@@ -199,8 +204,8 @@ The server speaks MCP over **stdio**.
 | `add_shell(thickness_mm, open_face)` | Hollow to a wall thickness; open a face (`+z`/…) or `none` |
 | `add_linear_pattern(count, spacing_mm, direction, feature_name)` | Repeat a feature N times along `+x`/`-x`/… |
 | `add_circular_pattern(count, center_x_mm, center_y_mm, feature_name)` | Repeat a feature N times around an axis (bolt circle) |
-| `set_dimension(dimension_name, value_mm)` | Change a named driving dim (e.g. `D1@BlockExtrude`), rebuild, remeasure |
-| `set_equation(equation)` | Add a global equation linking dims (e.g. `"D1@BlockExtrude" = 25`) |
+| `set_dimension(dimension_name, value_mm)` | Change a named driving dim (e.g. `D1@BlockExtrude`, or any name a tool returned in `dimensions`), rebuild, remeasure |
+| `set_equation(equation)` | Add a global equation or variable linking dims (e.g. `"W" = 40`, then `"width@Sketch1" = "W"`) |
 | `set_material(name, database)` | Assign a material (e.g. `6061 Alloy`) so mass/density are real |
 | `rebuild(top_only)` | Force rebuild, report errors |
 | `get_mass_properties` | Volume, mass, density, surface area, centre of mass, bounding box |

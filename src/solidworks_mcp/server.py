@@ -21,6 +21,7 @@ Builds, measures and verifies parametric parts and assemblies in the user's runn
 Conventions
 - Millimetres and degrees. New geometry starts on the Front plane (XY) and extrudes along +Z from z = 0. add_box spans x 0..w, y 0..h; add_disc is centred on the origin; revolves turn about Y.
 - Faces are picked by direction: '+z', '-x', ... is the outermost face facing that way, '+z:inner' the innermost (e.g. a pocket floor). *_on_face tools take 3D points that lie on that face.
+- Every sketch is fully defined. Tools return `dimensions` ({role: 'width@Sketch1', ...}): change one with set_dimension, or drive several from a global variable via set_equation.
 
 Work in small verified steps
 - Every modelling call returns volume, mass and bounding box: check them against your own hand calculation after each step, and fix the first mismatch before adding more.
@@ -111,7 +112,8 @@ async def add_box(width_mm: float, height_mm: float, depth_mm: float,
     """Add a rectangular block: sketch width x height on the first plane, extrude by depth.
 
     Dimensions are in millimetres. Returns the created feature name, the
-    addressable depth dimension ('D1@<name>'), and the resulting mass properties.
+    addressable depth dimension ('D1@<name>'), `dimensions` (width, height,
+    depth; for set_dimension) and the resulting mass properties.
     """
     return await _call(_session.add_box, width_mm, height_mm, depth_mm, name)
 
@@ -401,7 +403,8 @@ async def add_shell(thickness_mm: float, open_face: str = "+z") -> dict:
 async def set_dimension(dimension_name: str, value_mm: float) -> dict:
     """Set a named driving dimension (e.g. 'D1@BlockExtrude') in mm, rebuild, and remeasure.
 
-    This is the parametric edit at the heart of the correction loop.
+    This is the parametric edit at the heart of the correction loop. Every
+    modelling tool returns its dimensions by role in `dimensions`.
     """
     return await _call(_session.set_dimension, dimension_name, value_mm)
 
@@ -421,8 +424,9 @@ async def set_equation(equation: str) -> dict:
     """Add a global equation linking dimensions, then rebuild and remeasure.
 
     A SolidWorks equation string, e.g. '"D1@BlockExtrude" = 25' or
-    '"D1@BlockExtrude" = 2 * "D1@Sketch1"'. Persists a relation (unlike
-    set_dimension). Returns mass properties.
+    '"D1@BlockExtrude" = 2 * "D1@Sketch1"'. A global variable is '"W" = 40';
+    link a dimension to it with '"width@Sketch1" = "W"'. Persists a relation
+    (unlike set_dimension). Returns mass properties.
     """
     return await _call(_session.set_equation, equation)
 

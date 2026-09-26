@@ -12,6 +12,16 @@ All notable changes to this project are documented here. This project follows
   (e.g. sliced from a mesh) are full of such segments.
 
 ### Added
+- **Fully defined sketches.** Every tool leaves its sketches fully defined, the
+  way a designer would: a relation only where the input is exactly horizontal,
+  vertical or on the origin, and one dimension from the origin for the rest, so
+  nothing moves. Tools return `dimensions` by role (`width@Sketch1`,
+  `diameter@Sketch3`, ...) and `fully_defined`; change them with `set_dimension`
+  or drive them from a global variable with `set_equation`. Profiles with more
+  than 24 points, sweep paths and splines are fixed instead: SolidWorks slows
+  down quadratically with the number of dimensions, and such geometry has no
+  useful handles. Every integration test now fails on an under-defined sketch,
+  and changing a returned dimension gives the hand-calculated volume.
 - Modelling guidelines for agents: short connect-time `instructions` (conventions,
   verify-each-step, pitfalls) and the `solidworks://guide` resource with the full
   guide, including how to reverse-engineer a part from a mesh.

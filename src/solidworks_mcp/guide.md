@@ -19,7 +19,7 @@ short connect-time instructions first; this is the long version.
 - Faces are selected by the direction they face: `+x`, `-z`, ... picks the
   **outermost** planar face facing that way; `+z:inner` picks the **innermost**
   (a pocket floor, the inside of a shelled wall). Nothing in between can be
-  selected, so plan the order of cuts around it (see 5).
+  selected, so plan the order of cuts around it (see 6).
 - `*_on_face` tools take **3D points that lie on that face**; a point off the
   face is refused instead of being projected.
 
@@ -37,7 +37,33 @@ short connect-time instructions first; this is the long version.
   names the cause. Several SolidWorks calls fail silently (no feature, no
   error); the server checks for that and fails loud instead.
 
-## 3. Recipes
+## 3. Dimensions: every sketch is fully defined
+
+Every tool leaves its sketches fully defined, the way a designer would: a
+relation only where the input is exactly horizontal, vertical or on the origin,
+and one dimension from the origin for everything else. Nothing moves, and no
+stray drag in SolidWorks can change the part.
+
+- Tools return `dimensions`, `{role: name}`, and `fully_defined: true`. Change a
+  dimension with `set_dimension(name, value)`; the new volume shows it worked.
+  Roles follow the tool: box `width` `height` `depth`; disc `diameter`
+  `thickness`; cylinder `radius` `height`; cone `bottom_radius` `top_radius`
+  `height`; holes `diameter` `x` `y` (a counterbore also `clearance_diameter`,
+  `cbore_diameter`, `cbore_x`, `cbore_y`, `cbore_depth`); slot `end1_x`
+  `end1_y` `end2_x` `end2_y` `width`; loft `profile1_height`, `profile0_x1`, ...
+- Polygons get `x<i>` / `y<i>`: the x or y of vertex i, measured from the
+  origin, once per wall position (the vertices of one vertical wall share one
+  `x`). On a face sketch these are that sketch's own horizontal and vertical
+  directions, not the model axes. A coordinate of 0 is a relation, so it has no
+  dimension.
+- Profiles with more than 24 points (typically traced from a mesh), sweep paths
+  and splines are **fixed** instead: dimensioning them takes minutes and gives
+  nobody a usable handle. Rebuild them to change them.
+- Drive several dimensions from one number with a global variable:
+  `set_equation('"W" = 40')`, then `set_equation('"width@Sketch1" = "W"')`. An
+  equation-driven dimension ignores `set_dimension` (`applied: false`).
+
+## 4. Recipes
 
 - **Holes**: `add_hole` (through, along Z), `add_counterbore_hole` (on +Z),
   `add_hole_on_face` (any planar face). Blind round holes on a face:
@@ -64,7 +90,7 @@ short connect-time instructions first; this is the long version.
   transforms are read back, mates are measured back after the rebuild, and
   `check_interference` reports overlapping pairs with their volume.
 
-## 4. 3D printing
+## 5. 3D printing
 
 - Leave a gap of about 0.2-0.4 mm between printed parts that slide together,
   more for ASA/ABS than for PLA. Print a small fit test of a critical interface
@@ -80,7 +106,7 @@ short connect-time instructions first; this is the long version.
   output is moved into positive space** by SolidWorks: compare geometry in the
   model frame, not in raw STL coordinates.
 
-## 5. Reverse-engineering from a mesh (STL/3MF)
+## 6. Reverse-engineering from a mesh (STL/3MF)
 
 When a part must mate with something that only exists as a mesh, for example
 a proven battery socket:
@@ -103,7 +129,7 @@ a proven battery socket:
    extents means a shifted frame; a very different area means a misread
    feature, for example a solid wall where the reference is hollow.
 
-## 6. Limits and housekeeping
+## 7. Limits and housekeeping
 
 - Not available: importing meshes as bodies, mirror, drawings, sketches on
   arbitrary planes, arcs inside polygon profiles (approximate them with enough

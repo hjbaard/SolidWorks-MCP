@@ -517,6 +517,36 @@ Conclusion: shelved. It's a convenience an AI works around by placing features
 symmetrically itself (compute mirrored coords + add_hole/add_hole_on_face) or via
 a pattern. Revisit only if a macro-recorded sequence reveals a working path.
 
+### Fully defined sketches ✅
+Every tool constrains its sketch (`sketch_constraints.py`: a pure planner plus a
+COM executor); the `part` test fixture fails any test that leaves a sketch
+under-defined. Verified API facts, each from a live spike:
+- `ISketch.GetConstrainedStatus()`: 2 = under, 3 = fully, 4 = over
+  (swConstrainedStatus_e).
+- Relations via `ISketch.RelationManager.AddRelation(entities, swConstraintType_e)`
+  with a `VT_ARRAY|VT_DISPATCH` VARIANT: it returns the relation (None = refused).
+  The string API `SketchAddConstraints` returns void; only `sgHORIZONTAL2D`-style
+  names work there, so a wrong name fails silently.
+- Dimensions: select the entities, then `AddHorizontalDimension2` /
+  `AddVerticalDimension2` / `AddDiameterDimension2` (the input-value popup is
+  already off, `swInputDimValOnCreate`). Rename via `IDimension.Name`;
+  `GetNameForSelection()` gives `width@Sketch1`, which `set_dimension` takes.
+- The origin, language-independently: the `OriginProfileFeature`'s sketch point.
+  Dimensions to it work from any sketch plane (SolidWorks projects it).
+- A 0 mm dimension is impossible: a point on an origin axis gets
+  `HORIZPOINTS`/`VERTPOINTS` (25/26) with the origin instead.
+- Lines drawn with `AddToDB` still share end points; a centreline drawn onto
+  profile corners may keep separate points, so coincident duplicates are tied.
+- Each dimension re-solves the sketch: quadratic, 40 points 15 s, 120 points 90 s.
+  Pausing `ISketchManager.AutoSolve` and `DisplayWhenAdded` halves it. Hence the
+  fixed fallback above 24 points.
+- `Fix` on a line or arc still lets its end points slide along it (an open path
+  stays under-defined); fixing every point (ends and arc centres) works. A spline
+  is fixed as a whole.
+- `CreateSketchSlot(..., AddDimension=False)`: constrain the construction
+  centreline's ends plus one end arc's diameter; the slot's own relations do the
+  rest.
+
 ## Next
 
 - **Mirror**: crack InsertMirrorFeature2 (or use a definition object). The offset
