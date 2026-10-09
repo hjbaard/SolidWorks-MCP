@@ -977,6 +977,10 @@ Views and zoom for `screenshot`, exact component boxes, `measure_distance`,
   to 50 read back 40 in 3 of 80 tries through set_dimension, and the same
   write once more took every time. No trigger was found (the write alone, 0
   of 120); writing again when the old value reads back covers it.
+- IAssemblyDoc.EditPart2 on a component of an UNSAVED assembly returns -1, and
+  EditPart() then opens a modal Save As that blocks SolidWorks; on a saved one
+  EditPart2 returns 0 and IModelDoc2.IsEditingSelf() turns False. In that state
+  AddComponent5 returns None; EditAssembly() ends it.
 
 ## Next
 

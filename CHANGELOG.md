@@ -12,6 +12,12 @@ All notable changes to this project are documented here. This project follows
   edge's two faces by itself; the chamfer is checked and turned round when
   it took the other.
 
+### Fixed
+- An assembly left editing one of its parts (a double click in SolidWorks)
+  showed every other component see-through, and `insert_component` failed
+  with "AddComponent5 returned None". Every tool now edits the assembly as a
+  whole again first.
+
 ## [0.14.0] — 2026-10-09
 
 ### Added

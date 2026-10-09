@@ -195,6 +195,13 @@ class SolidWorksSession:
         active = binding.wrap(self._sw.ActiveDoc, self._mod.IModelDoc2)
         if active is None or active.GetTitle() != title:
             self._sw.ActivateDoc3(title, False, SW_DONT_REBUILD_ACTIVE_DOC, 0)
+        if int(self._model.GetType()) == SW_DOC_ASSEMBLY and not self._model.IsEditingSelf():
+            # left editing one of its parts (a double click in SolidWorks): the other
+            # components show see-through and AddComponent5 returns None
+            binding.wrap(self._model, self._mod.IAssemblyDoc).EditAssembly()
+            if not self._model.IsEditingSelf():
+                raise SolidWorksError(f"'{title}' is editing one of its parts and would not go back to editing "
+                                      "the assembly; choose Edit Assembly in SolidWorks.")
         return self._model
 
     def _require_part(self):

@@ -10,6 +10,7 @@ import os
 
 import pytest
 
+from solidworks_mcp import binding
 from solidworks_mcp.constants import SW_DOC_ASSEMBLY, SW_OPEN_DOC_SILENT
 from solidworks_mcp.errors import SolidWorksError
 from solidworks_mcp.mesh_tools import load_mesh
@@ -364,6 +365,25 @@ def test_stls_of_an_assembly_keep_its_coordinates(assembly, blocks, tmp_path):
     xs = [p[0] for t in load_mesh(b_file) for p in t]
     assert (min(xs), max(xs)) == pytest.approx((-50, -30), abs=1e-3), "block_b's file is not where it sits"
     assert whole["frame"] == apart["frame"] == "assembly"
+
+
+def test_an_assembly_left_editing_a_part_is_edited_as_a_whole_again(assembly, blocks, tmp_path):
+    """Left editing one of its parts (a double click in SolidWorks), the
+    assembly showed every other component see-through, and a component would
+    not go in: 'AddComponent5 returned None'."""
+    assembly.insert_component(blocks["block_a"], 0, 0, 0)
+    assembly.save_assembly(str(tmp_path / "pair.sldasm"))  # SolidWorks edits a part in context of a saved one
+    model = assembly._model
+    title = model.GetTitle().rsplit(".", 1)[0]
+    extension = binding.wrap(model.Extension, binding.module().IModelDocExtension)
+    assert extension.SelectByID2(f"{only(assembly, 'block_a')['name']}@{title}", "COMPONENT", 0, 0, 0, False, 0, None, 0)
+    assert binding.wrap(model, binding.module().IAssemblyDoc).EditPart2(True, False, 0) == 0
+    assert not model.IsEditingSelf(), "the setup did not leave the assembly editing a part"
+
+    assembly.insert_component(blocks["block_b"], 100, 0, 0)
+
+    assert model.IsEditingSelf(), "the assembly is still editing one of its parts"
+    assert len(assembly.list_components()["components"]) == 2
 
 
 def test_one_stl_per_component_is_for_assemblies(part, tmp_path):
