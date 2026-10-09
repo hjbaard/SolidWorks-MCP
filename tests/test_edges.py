@@ -43,6 +43,22 @@ def test_a_refused_fillet_names_the_edges_and_offers_the_ones_that_round(part):
     assert part.add_fillet(1, keep)["edges_filleted"] == len(keep.split(","))
 
 
+def test_a_refused_fillet_names_the_largest_radius_that_fits(part):
+    """'Fails even alone' said nothing about how large a round would fit. A
+    Ø4 x 3 boss on a block: its top rim takes a round up to its own radius, 2;
+    the rim where it meets the block takes 2.5."""
+    part.add_box(40, 20, 10)
+    part.add_boss_on_face(4, "+z", 20, 10, 10, 3, name="Boss")
+    rims = ",".join(str(e["index"]) for e in part.list_edges(feature="Boss")["edges"])
+
+    with pytest.raises(SolidWorksError, match="fail even alone") as refusal:
+        part.add_fillet(2.5, edges=rims)
+
+    largest = re.search(r"largest round it takes: R(\d+(?:\.\d+)?)", str(refusal.value))
+    assert largest, f"the refusal does not say how large a round fits: {refusal.value}"
+    assert 1.95 <= float(largest.group(1)) <= 2.0, refusal.value
+
+
 def test_an_edge_that_runs_on_into_a_fillet_rounds_with_tangent_propagation(part):
     """An L block with its inner corner rounded R2: the top edge along y = 10
     ends where it runs on smoothly round that round. Alone it could not be

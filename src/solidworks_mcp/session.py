@@ -3014,11 +3014,11 @@ class SolidWorksSession:
         extension = binding.wrap(model.Extension, self._mod.IModelDocExtension)
         index_of = {ref: i for i, ref in enumerate(self._persist_refs(self._solid_body().GetEdges() or ()))}
 
-        def rounds(refs, chain=propagate) -> bool:
+        def rounds(refs, chain=propagate, radius=radius_mm) -> bool:
             model.ClearSelection2(True)
             for ref in refs:
                 binding.wrap(extension.GetObjectByPersistReference3(ref)[0], self._mod.IEntity).Select4(True, None)
-            trial = self._uniform_fillet(radius_mm, chain)
+            trial = self._uniform_fillet(radius, chain)
             model.ClearSelection2(True)
             if trial is None:
                 return False
@@ -3045,7 +3045,8 @@ class SolidWorksSession:
             parts.append(f"edge(s) {named(chained)} fail alone but round with tangent_propagation=True: they end where "
                          "they run on smoothly into further edges, such as round a fillet, which the round must follow")
         if alone:
-            parts.append(f"edge(s) {named(alone)} fail even alone{'' if propagate else ', also with tangent propagation'}")
+            parts.append(f"edge(s) {named(alone)} fail even alone{'' if propagate else ', also with tangent propagation'}"
+                         + self._largest_rounds(alone, index_of, lambda ref, r: rounds([ref], radius=r), radius_mm))
         if together:
             parts.append(f"edge(s) {named(together)} round alone but not with the others")
         message = f"R{radius_mm:g} does not round all {len(edges)} edge(s): {'; '.join(parts)}."
@@ -3053,6 +3054,28 @@ class SolidWorksSession:
             keep = ",".join(str(index_of.get(ref, -1)) for ref in fits)
             message += f" The other {len(fits)} round together: edges=\"{keep}\" (list_edges indices)."
         return message + " Else a smaller radius, or skip_shorter_mm for slivers."
+
+    # bisection steps for the largest round an edge takes: radius / 2^8, 0.01 mm at R2.5
+    _RADIUS_STEPS = 8
+    _MAX_RADIUS_SEARCHES = 6
+
+    def _largest_rounds(self, refs, index_of, rounds, radius_mm: float) -> str:
+        """', the largest round each takes: 13 R1.99, ...', found by halving
+        the step between a round that fits and one that does not; '' for more
+        edges than are worth the trials."""
+        if len(refs) > self._MAX_RADIUS_SEARCHES:
+            return ""
+        found = []
+        for ref in refs:
+            low, high = 0.0, radius_mm
+            for _ in range(self._RADIUS_STEPS):
+                middle = (low + high) / 2
+                low, high = (middle, high) if rounds(ref, middle) else (low, middle)
+            largest = math.floor(low * 100) / 100
+            found.append(("" if len(refs) == 1 else f"{index_of.get(ref, -1)} ")
+                         + (f"R{largest:g}" if largest else "none"))
+        label = "the largest round it takes" if len(refs) == 1 else "the largest round each takes"
+        return f"; {label}: {', '.join(found)}"
 
     _VERTEX_TOLERANCE_MM = 0.01
 

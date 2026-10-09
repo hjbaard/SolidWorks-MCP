@@ -20,6 +20,9 @@ All notable changes to this project are documented here. This project follows
   showed every other component see-through, and `insert_component` failed
   with "AddComponent5 returned None". Every tool now edits the assembly as a
   whole again first.
+- A fillet refused on an edge that "fails even alone" said nothing about how
+  large a round would fit; the refusal now names the largest radius each
+  such edge takes (to 0.01 mm), found by trial.
 
 ## [0.14.0] — 2026-10-09
 

@@ -197,7 +197,8 @@ stray drag in SolidWorks can change the part.
   the edge where it meets the part, for a moulded look). On a big part,
   `list_edges(face="#5")`, `feature=`, `within_mm=` or `min_length_mm=` narrow
   the list; the indices stay those of the whole part. A refused fillet names
-  the edges the radius does not fit and gives the ones that round together;
+  the edges the radius does not fit, the largest round one that fails alone
+  takes, and the ones that round together;
   `skip_shorter_mm` leaves out slivers. A chamfer is 45 degrees unless
   `angle_deg` says otherwise, measured from the face `from_face` names:
   `add_chamfer(1, "-z:outline", angle_deg=60, from_face="-z")` leaves the
