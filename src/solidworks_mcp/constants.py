@@ -58,6 +58,8 @@ SW_MARK_FULL_ROUND_SIDE_2 = 4
 # swChamferType_e -- AngleDistance is a setback distance + an angle (45 deg gives
 # a symmetric chamfer). EqualDistance(16) alone is a silent no-op on this build.
 SW_CHAMFER_ANGLE_DISTANCE = 1
+# swFeatureChamferOption_e: measure the distance and angle from each edge's other face
+SW_FEATURE_CHAMFER_FLIP = 1
 
 # swSketchSlotCreationType_e / swSketchSlotLengthType_e
 SW_SLOT_CREATION_LINE = 0       # straight slot

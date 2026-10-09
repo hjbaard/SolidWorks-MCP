@@ -628,14 +628,18 @@ async def add_full_round(face: str, x_mm: float, y_mm: float, z_mm: float, name:
 
 
 @mcp.tool()
-async def add_chamfer(distance_mm: float, edges: str = "all", name: str = "Chamfer") -> dict:
-    """Chamfer edges of the current part at 45° with the given distance (mm).
+async def add_chamfer(distance_mm: float, edges: str = "all", name: str = "Chamfer",
+                      angle_deg: float = 45.0, from_face: str | None = None) -> dict:
+    """Chamfer edges of the current part: distance_mm back along a face, at angle_deg (default 45°) to it.
 
     edges: "all" (default), "x"/"y"/"z", a face outline like "+z:outline", a
     feature's edges like "feature:Boss", or explicit indices like "2,5" from
-    list_edges. Returns the number of edges chamfered and the mass properties.
+    list_edges. Another angle than 45° needs from_face, which way the face that
+    the distance runs along faces: "-z", angle_deg=60 makes an underside edge
+    printable without support (round an arc the chamfer is a cone). Returns the
+    number of edges chamfered and the mass properties.
     """
-    return await _call(_session.add_chamfer, distance_mm, edges, name)
+    return await _call(_session.add_chamfer, distance_mm, edges, name, angle_deg, from_face)
 
 
 @mcp.tool()

@@ -581,6 +581,27 @@ def test_chamfer(part):
     assert vol(part.add_chamfer(2)) < 8000
 
 
+@pytest.mark.parametrize("face", ["-z", "+z"])
+def test_a_chamfer_at_60_degrees_leaves_the_named_face(part, face):
+    """Only 45 degrees could be had; an underside edge prints without support
+    at 60. Round the rim of a Ø40 x 10 disc, 2 mm in along the named face
+    and 2 tan 60 down the side: a ring of that triangle, by Pappus. The
+    distance on the side instead would remove 410.1, not 420.8."""
+    part.add_disc(40, 10)
+    before = vol(part.get_mass_properties())
+    a, b = 2, 2 * math.tan(math.radians(60))
+    chamfered = part.add_chamfer(2, edges=f"{face}:outline", angle_deg=60, from_face=face)
+    removed = before - vol(chamfered)
+    assert removed == pytest.approx(math.pi * (20 - a / 3) * a * b, rel=1e-3), (
+        f"the 2 mm did not run along the {face} face: {removed:.1f} mm3 removed")
+
+
+def test_a_chamfer_at_another_angle_needs_the_face_it_leaves(part):
+    part.add_disc(40, 10)
+    with pytest.raises(SolidWorksError, match="needs from_face"):
+        part.add_chamfer(2, edges="-z:outline", angle_deg=60)
+
+
 def test_shell_open(part):
     part.add_box(40, 20, 10)
     assert abs(vol(part.add_shell(2, "+z")) - (8000 - 36 * 16 * 8)) < 0.1

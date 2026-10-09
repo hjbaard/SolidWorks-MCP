@@ -198,7 +198,10 @@ stray drag in SolidWorks can change the part.
   `list_edges(face="#5")`, `feature=`, `within_mm=` or `min_length_mm=` narrow
   the list; the indices stay those of the whole part. A refused fillet names
   the edges the radius does not fit and gives the ones that round together;
-  `skip_shorter_mm` leaves out slivers.
+  `skip_shorter_mm` leaves out slivers. A chamfer is 45 degrees unless
+  `angle_deg` says otherwise, measured from the face `from_face` names:
+  `add_chamfer(1, "-z:outline", angle_deg=60, from_face="-z")` leaves the
+  underside at 60 degrees, printable without support (1 mm in, tan 60 up).
   `radii_at_mm=[[x, y, z, r]]` lets the radius vary: r at the edge end at
   that point (`list_edges` gives the ends), `radius_mm` at the others, straight
   in between. Hand calculation for a right-angled edge of length L:

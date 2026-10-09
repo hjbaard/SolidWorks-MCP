@@ -59,6 +59,7 @@ from .constants import (
     SW_END_COND_THROUGH_ALL,
     SW_END_COND_UP_TO_NEXT,
     SW_END_COND_UP_TO_SURFACE,
+    SW_FEATURE_CHAMFER_FLIP,
     SW_FEATURE_SCOPE_ALL_BODIES,
     SW_FILE_LOCATIONS_MATERIALS,
     SW_FILLET_OPT_PROPAGATE,
@@ -3205,29 +3206,61 @@ class SolidWorksSession:
         distance, i, j = pairs[0]
         return i, j, distance
 
-    def add_chamfer(self, distance_mm: float, edges: str = "all", name: str = "Chamfer") -> dict:
-        """Chamfer edges of the part's solid body at 45 degrees (equal distance).
+    def add_chamfer(self, distance_mm: float, edges: str = "all", name: str = "Chamfer",
+                    angle_deg: float = 45.0, from_face: str | None = None) -> dict:
+        """Chamfer edges of the part's solid body: distance_mm back along one
+        face, at angle_deg to it (45, the default, is symmetric).
 
         edges: 'all' (default); a world axis 'x'|'y'|'z'; a face outline like
         '+z:outline'; every edge of one feature, 'feature:Boss'; or explicit
-        indices like '2,5' from list_edges. Returns how many edges were chamfered
-        and the resulting mass properties.
+        indices like '2,5' from list_edges. Another angle than 45 needs
+        from_face, which way the face the distance runs along faces ('-z': the
+        underside, the chamfer leaving it at angle_deg, 60 for a printable
+        edge). Round an arc the chamfer is a cone. Returns how many edges were
+        chamfered and the resulting mass properties.
         """
-        model = self._require_model()
+        self._require_model()
         if distance_mm <= 0:
             raise SolidWorksError(f"distance must be > 0 (got {distance_mm}).")
-
+        if not 0 < angle_deg < 90:
+            raise SolidWorksError(f"angle_deg must be between 0 and 90 (got {angle_deg}).")
+        if angle_deg != 45 and from_face is None:
+            raise SolidWorksError(f"A chamfer at {angle_deg:g} degrees needs from_face: which way the face faces "
+                                  "that the distance runs along and the angle is measured from, e.g. '-z'.")
+        reference = self._parse_direction(from_face) if from_face is not None else None
         body = self._solid_body()
+        chamfer, edge_count = self._insert_chamfer(body, edges, distance_mm, angle_deg, flip=False)
+        if reference is not None:
+            tilts = [self._tilt_deg(face, reference) for face in chamfer.GetFaces() or ()]
+            if tilts and all(abs(t - (90 - angle_deg)) < self._CHAMFER_ANGLE_TOLERANCE_DEG for t in tilts):
+                # SolidWorks measured from the other face of every edge
+                self._model.ClearSelection2(True)
+                chamfer.Select2(False, 0)
+                binding.wrap(self._model.Extension, self._mod.IModelDocExtension).DeleteSelection2(SW_DELETE_ABSORBED)
+                chamfer, edge_count = self._insert_chamfer(self._solid_body(), edges, distance_mm, angle_deg,
+                                                           flip=True)
+                tilts = [self._tilt_deg(face, reference) for face in chamfer.GetFaces() or ()]
+            off = [round(t, 2) for t in tilts if abs(t - angle_deg) >= self._CHAMFER_ANGLE_TOLERANCE_DEG]
+            if off or not tilts:
+                raise SolidWorksError(f"The chamfer does not leave the {from_face} face at {angle_deg:g} degrees "
+                                      f"everywhere (its faces stand at {off or 'none'} to it): chamfer only edges "
+                                      f"of the {from_face} face, and edges that run the other way in a call of "
+                                      "their own.")
+        return self._finish_feature(chamfer, name, edges_chamfered=edge_count)
+
+    _CHAMFER_ANGLE_TOLERANCE_DEG = 0.5
+
+    def _insert_chamfer(self, body, edges: str, distance_mm: float, angle_deg: float, flip: bool):
+        """Select the edges and chamfer them; (feature, edge count)."""
         edge_count = self._select_edges(body, edges)
         if edge_count == 0:
             raise SolidWorksError(f"No edges found for selector '{edges}'.")
-
-        feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
+        feat_mgr = binding.wrap(self._model.FeatureManager, self._mod.IFeatureManager)
         chamfer = feat_mgr.InsertFeatureChamfer(
-            0,                                   # Options (no tangent propagation)
+            SW_FEATURE_CHAMFER_FLIP if flip else 0,  # Options (no tangent propagation)
             SW_CHAMFER_ANGLE_DISTANCE,           # ChamferType (distance + angle)
             mm_to_m(distance_mm),                # Width (the setback distance)
-            deg_to_rad(45.0),                    # Angle (45 deg -> symmetric chamfer)
+            deg_to_rad(angle_deg),               # Angle (45 deg -> symmetric chamfer)
             0.0,                                 # OtherDist
             0.0, 0.0, 0.0,                       # Vertex chamfer distances
         )
@@ -3235,7 +3268,17 @@ class SolidWorksSession:
             raise SolidWorksError(
                 "InsertFeatureChamfer failed (None). Is the distance too large for the geometry?"
             )
-        return self._finish_feature(chamfer, name, edges_chamfered=edge_count)
+        return binding.wrap(chamfer, self._mod.IFeature), edge_count
+
+    def _tilt_deg(self, face, direction) -> float:
+        """The angle between a face and the plane facing `direction`, in degrees:
+        between their normals, averaged over the face's facets (a cone's is the
+        same all round)."""
+        triangles = self._face_triangles(binding.wrap(face, self._mod.IFace2))
+        if not triangles:
+            return float("nan")
+        cosines = [sum(n * d for n, d in zip(normal, direction)) for *_, normal in triangles]
+        return math.degrees(math.acos(max(-1.0, min(1.0, sum(cosines) / len(cosines)))))
 
     def add_shell(self, thickness_mm: float, open_face: str = "+z") -> dict:
         """Hollow the part to a wall of `thickness_mm`, optionally opening one face.

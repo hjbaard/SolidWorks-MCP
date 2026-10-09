@@ -3,6 +3,15 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- `add_chamfer(angle_deg=60, from_face="-z")` chamfers at another angle than
+  45 degrees: the distance runs along the named face and the angle is
+  measured from it, round an arc too (a cone). SolidWorks picks one of an
+  edge's two faces by itself; the chamfer is checked and turned round when
+  it took the other.
+
 ## [0.14.0] — 2026-10-09
 
 ### Added
