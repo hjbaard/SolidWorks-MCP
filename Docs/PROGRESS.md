@@ -981,6 +981,11 @@ Views and zoom for `screenshot`, exact component boxes, `measure_distance`,
   EditPart() then opens a modal Save As that blocks SolidWorks; on a saved one
   EditPart2 returns 0 and IModelDoc2.IsEditingSelf() turns False. In that state
   AddComponent5 returns None; EditAssembly() ends it.
+- Colours: IComponent2.SetMaterialPropertyValues2 and IModelDoc2.
+  MaterialPropertyValues take nine doubles (r, g, b, ambient, diffuse,
+  specular, shininess, transparency, emission; 0..1) only as a VARIANT
+  VT_ARRAY|VT_R8: a plain list is ignored without an error. A component with
+  no colour of its own reads all -1; values come back in steps of 1/255.
 
 ## Next
 

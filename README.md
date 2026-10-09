@@ -35,12 +35,12 @@ it "looks about right".
   holes, counterbores, slots and pockets on any face; rounded polygon corners; ISO holes from the Hole Wizard; real ISO metric threads;
   fillets, chamfers, shells, patterns, mirrors, ribs, equations and materials. Assemblies
   with mates and interference checks. STEP/STL/3MF export and screenshots.
-  Engraved and embossed text. Work on existing parts: list, delete, suppress and reorder features; read, extrude and cut a person's sketches; import STEP. Joints with concentric and angle mates, checked over their range. Printability checks and dimensioned drawings. Planes at any offset or angle. Several bodies per part, combined and split. Variable fillets and full rounds. Free sketches with tangent arcs and splines. 85 tools in total.
+  Engraved and embossed text. Work on existing parts: list, delete, suppress and reorder features; read, extrude and cut a person's sketches; import STEP. Colours per part or component. Joints with concentric and angle mates, checked over their range. Printability checks and dimensioned drawings. Planes at any offset or angle. Several bodies per part, combined and split. Variable fillets and full rounds. Free sketches with tangent arcs and splines. 86 tools in total.
 - **It fails loud.** A call that cannot do what was asked returns
   `{ok: false, error}` with the cause, never silently wrong geometry.
 - **A fixed, typed tool surface.** There is no "run arbitrary code" tool; the
   agent can only do what the tools allow.
-- **Tested against real SolidWorks.** 676 tests; each feature's integration test
+- **Tested against real SolidWorks.** 681 tests; each feature's integration test
   compares the result with a hand calculation.
 - **Local.** It talks to your running SolidWorks over COM; the server itself
   makes no network calls.

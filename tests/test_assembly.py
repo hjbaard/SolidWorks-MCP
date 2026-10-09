@@ -386,6 +386,23 @@ def test_an_assembly_left_editing_a_part_is_edited_as_a_whole_again(assembly, bl
     assert len(assembly.list_components()["components"]) == 2
 
 
+def test_components_take_a_colour_and_see_through_of_their_own(assembly, blocks):
+    """A black frame and light grey covers had to be set by hand, and a
+    component left see-through stayed so. block_a dark, block_b see-through
+    and solid again; the part files keep their own colour."""
+    two_blocks(assembly, blocks)
+    dark = assembly.set_appearance(rgb=[30, 30, 30], component="block_a")
+    assert dark["rgb"] == [30, 30, 30] and dark["transparency"] == 0
+    assert assembly.set_appearance(transparency=0.6, component="block_b")["transparency"] == pytest.approx(0.6)
+    solid = assembly.set_appearance(transparency=0, component="block_b")
+    assert solid["transparency"] == 0
+    comp = assembly._component_by_name(assembly._require_assembly(), "block_a")
+    own = binding.wrap(comp.GetModelDoc2(), binding.module().IModelDoc2).MaterialPropertyValues
+    assert [round(c * 255) for c in own[:3]] != [30, 30, 30], "the colour went into the part file, not the assembly"
+    with pytest.raises(SolidWorksError, match="name the component"):
+        assembly.set_appearance(rgb=[30, 30, 30])
+
+
 def test_one_stl_per_component_is_for_assemblies(part, tmp_path):
     part.add_box(10, 10, 10)
     with pytest.raises(SolidWorksError, match="per_component is for an assembly"):

@@ -267,6 +267,10 @@ stray drag in SolidWorks can change the part.
   with the nearest point; `inside: true` means the point lies in the material.
   `axis_mm=[[x, y, z], [dx, dy, dz]]` measures to an endless line instead,
   such as the axis of a bolt that is not modelled.
+- **Colours**: `set_appearance(rgb=[30, 30, 30], component="Frame-1")` in an
+  assembly (the part keeps its own colour), `set_appearance(transparency=0.6,
+  component=...)` to see what lies behind a cover, `transparency=0` to make
+  it solid again; without component, the current part itself.
 - **Joints**: a hinge is a `concentric` mate between the two holes (pick a
   cylinder by its `list_faces(component=...)` index, `"#5"`), a `coincident`
   mate between the faces that slide on each other, and an `angle` mate between

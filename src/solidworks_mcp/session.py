@@ -4662,6 +4662,63 @@ class SolidWorksSession:
         return {"ok": True, "axis": axis, "sections": sections,
                 "worst_extent_diff_mm": round(worst_extent, 4), "worst_area_diff_mm2": round(worst_area, 4)}
 
+    def set_appearance(self, rgb: list | None = None, transparency: float | None = None,
+                       component: str | None = None) -> dict:
+        """Colour (rgb, 0..255 each) and transparency (0 solid .. 1 clear) of the
+        current part, or in an assembly of one component ('Leg-1/Thigh-1' inside
+        a sub-assembly); what is left out stays as it was. A component's colour
+        is the assembly's, the part keeps its own."""
+        if rgb is None and transparency is None:
+            raise SolidWorksError("Give rgb, transparency or both.")
+        model = self._require_model()
+        if int(model.GetType()) == SW_DOC_ASSEMBLY:
+            if component is None:
+                raise SolidWorksError("In an assembly, name the component to colour (list_components).")
+            comp = self._component_by_name(binding.wrap(model, self._mod.IAssemblyDoc), component)
+            current = comp.GetMaterialPropertyValues2(SW_THIS_CONFIGURATION, None)
+            if current[0] < 0:  # no colour of its own in the assembly yet: start from the part's
+                part = binding.wrap(comp.GetModelDoc2(), self._mod.IModelDoc2)
+                current = part.MaterialPropertyValues if part is not None else self._DEFAULT_APPEARANCE
+            values = self._appearance_values(current, rgb, transparency)
+            comp.SetMaterialPropertyValues2(self._doubles(values), SW_THIS_CONFIGURATION, None)
+            stored = comp.GetMaterialPropertyValues2(SW_THIS_CONFIGURATION, None)
+        else:
+            if component is not None:
+                raise SolidWorksError("component is for an assembly; a part is coloured as a whole.")
+            values = self._appearance_values(model.MaterialPropertyValues, rgb, transparency)
+            model.MaterialPropertyValues = self._doubles(values)
+            stored = model.MaterialPropertyValues
+        model.GraphicsRedraw2()
+        # SolidWorks keeps colours in steps of 1/255
+        if any(abs(a - b) > 1 / 255 for a, b in zip(stored, values)):
+            raise SolidWorksError(f"SolidWorks did not take the appearance: it reads {list(stored)}.")
+        return {"ok": True, "rgb": [round(c * 255) for c in stored[:3]], "transparency": round(stored[7], 3),
+                **({"component": comp.Name2} if component is not None else {})}
+
+    # red, green, blue, ambient, diffuse, specular, shininess, transparency, emission (0..1)
+    _DEFAULT_APPEARANCE = (0.8, 0.8, 0.8, 1.0, 1.0, 0.5, 0.4, 0.0, 0.0)
+
+    @staticmethod
+    def _appearance_values(current, rgb, transparency) -> list:
+        """The nine material property values with the colour and/or transparency
+        replaced; pure, unit-tested."""
+        values = [float(v) for v in current]
+        if rgb is not None:
+            if len(rgb) != 3 or any(not 0 <= c <= 255 for c in rgb):
+                raise SolidWorksError(f"rgb is three numbers 0..255 (got {rgb}).")
+            values[:3] = [c / 255 for c in rgb]
+        if transparency is not None:
+            if not 0 <= transparency <= 1:
+                raise SolidWorksError(f"transparency runs from 0 (solid) to 1 (clear) (got {transparency}).")
+            values[7] = float(transparency)
+        return values
+
+    @staticmethod
+    def _doubles(values) -> object:
+        """A VARIANT array of doubles: a plain list is passed as variants and the
+        material values are ignored without a word."""
+        return win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, [float(v) for v in values])
+
     def set_material(self, name: str, database: str = "", density_kg_m3: float | None = None) -> dict:
         """Assign a material by name so mass/density reflect a real material.
 

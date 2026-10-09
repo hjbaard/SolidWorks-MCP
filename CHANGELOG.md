@@ -11,6 +11,9 @@ All notable changes to this project are documented here. This project follows
   measured from it, round an arc too (a cone). SolidWorks picks one of an
   edge's two faces by itself; the chamfer is checked and turned round when
   it took the other.
+- `set_appearance(rgb, transparency, component)` colours the current part,
+  or one component in an assembly (the part file keeps its own colour), and
+  makes it see-through or solid again.
 
 ### Fixed
 - An assembly left editing one of its parts (a double click in SolidWorks)

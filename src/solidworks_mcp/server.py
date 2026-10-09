@@ -798,6 +798,19 @@ async def reorder_feature(name: str, before: str) -> dict:
 
 
 @mcp.tool()
+async def set_appearance(rgb: list | None = None, transparency: float | None = None,
+                         component: str | None = None) -> dict:
+    """Colour and/or see-through of the current part, or of one component in an assembly.
+
+    rgb: [r, g, b], 0..255 each; transparency: 0 solid .. 1 clear (0 makes a
+    see-through component solid again). In an assembly, component names it
+    ('Bracket-1', 'Leg-1/Thigh-1'); the colour then belongs to the assembly and
+    the part keeps its own. What is left out stays as it was.
+    """
+    return await _call(_session.set_appearance, rgb, transparency, component)
+
+
+@mcp.tool()
 async def set_material(name: str, database: str = "", density_kg_m3: float | None = None) -> dict:
     """Assign a material by name (e.g. "6061 Alloy", "AISI 1020", "ABS").
 

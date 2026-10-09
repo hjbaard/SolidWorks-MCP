@@ -596,6 +596,15 @@ def test_a_chamfer_at_60_degrees_leaves_the_named_face(part, face):
         f"the 2 mm did not run along the {face} face: {removed:.1f} mm3 removed")
 
 
+def test_a_part_keeps_its_colour_after_saving(part, tmp_path):
+    part.add_box(40, 20, 10)
+    assert part.set_appearance(rgb=[200, 210, 220])["rgb"] == [200, 210, 220]
+    path = part.save_part(str(tmp_path / "coloured.sldprt"))["path"]
+    part.close_part()
+    part.open_part(path)
+    assert [round(c * 255) for c in part._model.MaterialPropertyValues[:3]] == [200, 210, 220]
+
+
 def test_a_chamfer_at_another_angle_needs_the_face_it_leaves(part):
     part.add_disc(40, 10)
     with pytest.raises(SolidWorksError, match="needs from_face"):

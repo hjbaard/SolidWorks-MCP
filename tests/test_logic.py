@@ -486,6 +486,19 @@ def test_a_face_by_a_point_on_it_reads_three_numbers():
             SolidWorksSession._point_selector(wrong)
 
 
+def test_an_appearance_changes_only_what_is_given():
+    """Making a component see-through must not reset the colour set before,
+    nor the shine SolidWorks keeps in the same nine values."""
+    current = [0.1, 0.2, 0.3, 0.9, 0.8, 0.5, 0.3, 0.0, 0.0]
+    clear = SolidWorksSession._appearance_values(current, None, 0.6)
+    assert clear == [0.1, 0.2, 0.3, 0.9, 0.8, 0.5, 0.3, 0.6, 0.0]
+    grey = SolidWorksSession._appearance_values(current, [204, 204, 204], None)
+    assert grey == pytest.approx([0.8, 0.8, 0.8, 0.9, 0.8, 0.5, 0.3, 0.0, 0.0])
+    for rgb, transparency in (([300, 0, 0], None), ([1, 2], None), (None, 1.5)):
+        with pytest.raises(SolidWorksError):
+            SolidWorksSession._appearance_values(current, rgb, transparency)
+
+
 def test_a_zoom_region_turns_into_the_bottom_view():
     # from below the screen's x is the model's x, its y the model's z, and the
     # viewer looks along +y; the bottom view's Orientation3, as SolidWorks gives it
