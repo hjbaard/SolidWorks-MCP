@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.16.0] — 2026-10-10
 
 ### Fixed
 - SOLIDWORKS 2026 SP4.0 crashed at random while a tool sketched, mostly at
