@@ -25,6 +25,23 @@ def test_box(part):
     assert abs(vol(part.add_box(40, 20, 10)) - 8000) < 0.01
 
 
+def test_a_template_with_its_planes_in_another_order_still_builds_on_front(part, monkeypatch):
+    """A user's template held another plane first: every block came out
+    turned, 10 along x instead of 40, and each tool that looks for a face by
+    its direction missed it. SolidWorks will not move a default plane, so the
+    tree is read here as such a template gives it: Right, Top, Front."""
+    in_tree_order = part._ref_planes
+    monkeypatch.setattr(part, "_ref_planes", lambda: list(reversed(in_tree_order()[:3])) + in_tree_order()[3:])
+
+    part.add_box(40, 20, 10)
+
+    box = part.get_bounding_box()["bounding_box_mm"]
+    assert box["min_mm"] == pytest.approx([0, 0, 0], abs=1e-6), box
+    assert box["max_mm"] == pytest.approx([40, 20, 10], abs=1e-6), f"the block was not built on the Front plane: {box}"
+    hole = part.add_hole_on_face(4, "+x", 40, 10, 5, depth_mm=5)
+    assert abs(vol(hole) - (8000 - math.pi * 4 * 5)) < 0.01
+
+
 def test_set_dimension_turns_an_angle_in_degrees(part):
     """180 used to land as 0.18 radians: the ring came out 10 degrees, not half."""
     full = vol(part.add_revolved_profile([[5, 0], [10, 0], [10, 10], [5, 10]], 360))

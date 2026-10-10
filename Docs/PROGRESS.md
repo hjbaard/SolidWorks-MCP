@@ -995,6 +995,10 @@ Views and zoom for `screenshot`, exact component boxes, `measure_distance`,
   CreateCornerRectangle with AddToDB still crashed it every time (only a test
   helper used it; four CreateLine calls do not). Drawing by hand is fine.
   Regenerating the gen_py wrappers did not matter.
+- IRefPlane.Transform ArrayData: x axis (0..2), y axis (3..5), normal (6..8),
+  a point on the plane (9..11, metres). Front: x, y, +z; Top: x, -z, +y;
+  Right: -z, y, +x. Default planes cannot be moved in the tree
+  (ReorderFeature returns False).
 
 ## Next
 

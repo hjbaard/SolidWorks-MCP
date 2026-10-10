@@ -471,21 +471,31 @@ class SolidWorksSession:
     # --- geometry -------------------------------------------------------------
 
     def _first_ref_plane(self):
-        """First reference plane via tree walk (language-independent: 'RefPlane').
+        """The Front plane, where new geometry starts (see _default_plane)."""
+        return self._default_plane("front")
 
-        Avoids SelectByID2('Front Plane', ...), which breaks on non-English
-        installs. In a fresh part the first RefPlane is the Front plane.
-        """
-        self._require_part()
-        feat = binding.wrap(self._model.FirstFeature(), self._mod.IFeature)
-        while feat is not None:
-            try:
-                if feat.GetTypeName2() == "RefPlane":
-                    return feat
-            except pythoncom.com_error:
-                pass
-            feat = binding.wrap(feat.GetNextFeature(), self._mod.IFeature)
-        return None
+    # each default plane by its axes: x axis, y axis, normal (as IRefPlane.Transform gives them)
+    _DEFAULT_PLANE_AXES = {
+        "front": ((1, 0, 0), (0, 1, 0), (0, 0, 1)),
+        "top": ((1, 0, 0), (0, 0, -1), (0, 1, 0)),
+        "right": ((0, 0, -1), (0, 1, 0), (1, 0, 0)),
+    }
+
+    def _default_plane(self, key: str):
+        """The default plane 'front' / 'top' / 'right' by where it lies: through
+        the origin, with the axes the sketches on it are drawn in. Not by name,
+        which changes with the language, nor by place in the tree: a template
+        held another plane first, and every part came out turned."""
+        axes = self._DEFAULT_PLANE_AXES[key]
+        planes = self._ref_planes()
+        for feat in planes:
+            data = binding.wrap(binding.wrap(feat.GetSpecificFeature2(), self._mod.IRefPlane).Transform,
+                                self._mod.IMathTransform).ArrayData
+            through_origin = abs(sum(o * n for o, n in zip(data[9:12], data[6:9]))) < 1e-9
+            if through_origin and all(abs(a - b) < 1e-9 for a, b in zip(data[:9], itertools.chain(*axes))):
+                return feat
+        raise SolidWorksError(f"The part has no {key} plane: none of {', '.join(f.Name for f in planes)} lies "
+                              f"through the origin facing {axes[2]}. Is its template unusual?")
 
     def _solid_body(self):
         """The first solid body of the current part (early-bound IBody2)."""
@@ -1723,10 +1733,7 @@ class SolidWorksSession:
         corners = self._profile_corners(prof, corner_radii_mm)
         self._require_path_starts_along_x(path_mm)
 
-        planes = self._ref_planes()
-        if len(planes) < 3:
-            raise SolidWorksError("No Right plane found (expected Front/Top/Right).")
-        right = planes[2]  # tree order: Front, Top, Right
+        right = self._default_plane("right")
 
         # profile (cross-section) on the Right plane, perpendicular to the +X start
         if not right.Select2(False, 0):
@@ -2729,8 +2736,6 @@ class SolidWorksSession:
         dim.Name = role
         return dim.GetNameForSelection()
 
-    _REF_PLANE_INDEX = {"front": 0, "top": 1, "right": 2}  # tree order in a new part
-
     def cut_profile_through_plane(self, points_mm: list, plane: str,
                                   depth_mm: float | None = None, name: str = "Cut",
                                   corner_radii_mm=None, keep_inside: bool = False) -> dict:
@@ -3597,9 +3602,9 @@ class SolidWorksSession:
         any template language) or the name of a plane in the tree, such as one a
         person made. Returns (plane, label)."""
         key = str(plane).lower()
+        if key in self._DEFAULT_PLANE_AXES:
+            return self._default_plane(key), f"{key} plane"
         planes = self._ref_planes()
-        if key in self._REF_PLANE_INDEX:
-            return planes[self._REF_PLANE_INDEX[key]], f"{key} plane"
         named = [p for p in planes if p.Name == plane] or [p for p in planes if p.Name.lower() == key]
         if len(named) != 1:
             raise SolidWorksError(f"No plane '{plane}'. Use 'front', 'top', 'right' or a plane of the part: "

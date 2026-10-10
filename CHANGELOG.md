@@ -12,6 +12,10 @@ All notable changes to this project are documented here. This project follows
   view, feature tree or sketch redraws until it is done, together with
   CommandInProgress. In hundreds of tool calls since, it did not crash. The
   selftest runs its checks the same way.
+- With a part template that holds its planes in another order, every part
+  came out turned and the tools that look for a face by direction missed
+  it. The Front, Top and Right planes are now found by where they lie, not
+  by their place in the tree.
 
 ## [0.15.0] — 2026-10-09
 
