@@ -30,6 +30,17 @@ def sw():
     session._command_in_progress(before)
 
 
+@pytest.fixture(autouse=True)
+def _quiet_solidworks(request):
+    """Each SolidWorks test runs with SolidWorks' window kept still, as every
+    tool call of the server does (SP4.0 crashed while sketching otherwise)."""
+    if "sw" not in request.fixturenames:
+        yield
+        return
+    with request.getfixturevalue("sw")._quiet_ui():
+        yield
+
+
 @pytest.fixture
 def part(sw):
     """A fresh empty part for one test; closed afterwards.

@@ -3,6 +3,16 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- SOLIDWORKS 2026 SP4.0 crashed at random while a tool sketched, mostly at
+  the first sketch (an access violation in its user interface, slduiu.dll).
+  Every tool call now keeps SolidWorks' window still while it works: no
+  view, feature tree or sketch redraws until it is done, together with
+  CommandInProgress. In hundreds of tool calls since, it did not crash. The
+  selftest runs its checks the same way.
+
 ## [0.15.0] — 2026-10-09
 
 ### Added

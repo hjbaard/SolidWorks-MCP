@@ -42,15 +42,20 @@ def last_feature(session):
 
 
 def person_rectangle(session, corner1, corner2):
-    """An undimensioned rectangle on the Front plane (z = 0); returns the sketch name."""
+    """An undimensioned rectangle on the Front plane (z = 0); returns the sketch name.
+
+    Four lines, not CreateCornerRectangle: on SOLIDWORKS 2026 SP4.0 that call
+    crashed SolidWorks every time, also with its window kept still."""
     model = session._model
     front, _ = session._named_plane("front")
     model.ClearSelection2(True)
     assert front.Select2(False, 0)
     sk = binding.wrap(model.SketchManager, binding.module().ISketchManager)
     sk.InsertSketch(True)
+    (x1, y1), (x2, y2) = ((c[0] / 1000, c[1] / 1000) for c in (corner1, corner2))
     sk.AddToDB = True
-    sk.CreateCornerRectangle(corner1[0] / 1000, corner1[1] / 1000, 0, corner2[0] / 1000, corner2[1] / 1000, 0)
+    for a, b in (((x1, y1), (x2, y1)), ((x2, y1), (x2, y2)), ((x2, y2), (x1, y2)), ((x1, y2), (x1, y1))):
+        assert sk.CreateLine(*a, 0, *b, 0)
     sk.AddToDB = False
     sk.InsertSketch(True)
     return last_feature(session)

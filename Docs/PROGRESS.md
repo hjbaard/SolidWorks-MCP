@@ -986,6 +986,15 @@ Views and zoom for `screenshot`, exact component boxes, `measure_distance`,
   specular, shininess, transparency, emission; 0..1) only as a VARIANT
   VT_ARRAY|VT_R8: a plain list is ignored without an error. A component with
   no colour of its own reads all -1; values come back in steps of 1/255.
+- SOLIDWORKS 2026 SP4.0 (34.4.0.0078, HotFix 5.9) crashes at random while the
+  API sketches (CreateLine, also after the first line): an access violation in
+  slduiu.dll inside its MFC message loop (CXRS crash report in
+  %LOCALAPPDATA%\SolidWorks\CXRS). CommandInProgress alone did not prevent it,
+  nor the view, feature tree and DisplayWhenAdded switched off alone; both
+  together did (no crash in 300+ tool calls, against 6 in 7 runs).
+  CreateCornerRectangle with AddToDB still crashed it every time (only a test
+  helper used it; four CreateLine calls do not). Drawing by hand is fine.
+  Regenerating the gen_py wrappers did not matter.
 
 ## Next
 

@@ -23,6 +23,11 @@ class StandInSession:
         self._model = None
         self.loose_sketches = list(loose_sketches)
         self.closed = 0
+        self.guarded = 0
+
+    def run_guarded(self, fn, *args):
+        self.guarded += 1
+        return fn(*args)
 
     def new_part(self):
         self._model = object()
@@ -53,6 +58,9 @@ def test_a_failing_check_is_reported_and_the_next_one_still_runs():
     assert results == [("breaks", False, "SolidWorksError: FeatureCut4 failed"),
                        ("builds", True, "8000.000 mm3")], results
     assert sw.closed == 2, "a check's part must be closed even when it fails, or the user's SolidWorks fills up"
+    assert sw.guarded == 2, (
+        "every check must run as a tool call does: SOLIDWORKS 2026 SP4.0 crashed while sketching otherwise"
+    )
 
 
 def test_a_check_that_leaves_a_sketch_loose_fails():

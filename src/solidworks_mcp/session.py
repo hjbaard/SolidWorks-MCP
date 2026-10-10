@@ -9,6 +9,7 @@ language-independent plane walk, forced-SI mass properties) are the ones proven
 green by scripts/m1_block.py and scripts/m2_parametric.py.
 """
 
+import contextlib
 import itertools
 import math
 import os
@@ -151,6 +152,8 @@ class SolidWorksSession:
         self._sw = None       # early-bound ISldWorks
         self._mod = None      # generated wrapper module
         self._model = None    # current IModelDoc2
+        self._quiet_depth = 0  # inside _quiet_ui
+        self._to_wake = []     # (document, [(object, property)]) to switch back on after it
 
     # --- connection -----------------------------------------------------------
 
@@ -195,6 +198,8 @@ class SolidWorksSession:
         active = binding.wrap(self._sw.ActiveDoc, self._mod.IModelDoc2)
         if active is None or active.GetTitle() != title:
             self._sw.ActivateDoc3(title, False, SW_DONT_REBUILD_ACTIVE_DOC, 0)
+        if self._quiet_depth:
+            self._quiet(self._model)
         if int(self._model.GetType()) == SW_DOC_ASSEMBLY and not self._model.IsEditingSelf():
             # left editing one of its parts (a double click in SolidWorks): the other
             # components show see-through and AddComponent5 returns None
@@ -3844,7 +3849,8 @@ class SolidWorksSession:
         snapshot = self._history_snapshot()
         busy = self._command_in_progress(True)
         try:
-            return fn(*args, **kwargs)
+            with self._quiet_ui():
+                return fn(*args, **kwargs)
         except SolidWorksError as exc:
             left = self._roll_back(snapshot)
             if left:
@@ -3873,6 +3879,49 @@ class SolidWorksSession:
                 raise
             self._sw = self._model = None
             self.connect()
+
+    @contextlib.contextmanager
+    def _quiet_ui(self):
+        """Keep SolidWorks' window still while tools work on its documents.
+
+        SOLIDWORKS 2026 SP4.0 crashed at random while the API sketched: an
+        access violation in slduiu.dll, in its window message loop, also with
+        CommandInProgress set. With the view, the feature tree and new sketch
+        entities left undrawn it did not (6 crashes in 7 runs before, none in
+        15 calls after). Everything is switched on and redrawn afterwards.
+        """
+        self._quiet_depth += 1
+        try:
+            yield
+        finally:
+            self._quiet_depth -= 1
+            if not self._quiet_depth:
+                self._wake_all()
+
+    def _quiet(self, model) -> None:
+        """Stop `model`'s view, feature tree and sketcher from redrawing, noting
+        what was on so _wake_all switches just that back on."""
+        view = binding.wrap(model.ActiveView, self._mod.IModelView)
+        features = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
+        sketches = binding.wrap(model.SketchManager, self._mod.ISketchManager)
+        switched = []
+        for target, prop in ((view, "EnableGraphicsUpdate"), (features, "EnableFeatureTree"),
+                             (features, "EnableFeatureTreeWindow"), (sketches, "DisplayWhenAdded")):
+            if target is not None and getattr(target, prop):
+                setattr(target, prop, False)
+                switched.append((target, prop))
+        if switched:
+            self._to_wake.append((model, switched))
+
+    def _wake_all(self) -> None:
+        to_wake, self._to_wake = self._to_wake, []
+        for model, switched in to_wake:
+            try:
+                for target, prop in switched:
+                    setattr(target, prop, True)
+                model.GraphicsRedraw2()
+            except pythoncom.com_error:
+                pass  # the document was closed during the call: nothing left to show
 
     def _command_in_progress(self, flag):
         """Set ISldWorks.CommandInProgress; return what it was when this changed
@@ -5392,6 +5441,10 @@ class SolidWorksSession:
         rotation = None if from_dir is None else self._view_rotation(from_dir)
         model = self._require_model()
         busy = self._command_in_progress(False)  # the view must redraw for the picture
+        screen = binding.wrap(model.ActiveView, self._mod.IModelView)
+        stilled = screen is not None and not screen.EnableGraphicsUpdate  # by _quiet_ui
+        if stilled:
+            screen.EnableGraphicsUpdate = True
         extension = binding.wrap(model.Extension, self._mod.IModelDocExtension)
         shown = {}
         try:
@@ -5406,6 +5459,8 @@ class SolidWorksSession:
                 extension.SetUserPreferenceToggle(toggle, 0, value)
             if shown:
                 model.GraphicsRedraw2()
+            if stilled:
+                screen.EnableGraphicsUpdate = False
             self._command_in_progress(busy)
 
     def _take_screenshot(self, model, path, ext, key, zoom_mm, rotation=None) -> dict:

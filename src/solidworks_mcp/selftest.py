@@ -170,6 +170,12 @@ CHECKS = [
 
 
 def _run_one(sw, check) -> str:
+    """One check, run as the server runs a tool call: SOLIDWORKS 2026 SP4.0
+    crashed while sketching otherwise."""
+    return sw.run_guarded(_check_and_close, sw, check)
+
+
+def _check_and_close(sw, check) -> str:
     try:
         detail = check(sw)
         loose = sw._under_defined_sketches() if sw._model is not None else []  # a check may close its own
