@@ -815,6 +815,16 @@ def test_screenshot_looks_from_the_chosen_side(part, tmp_path, view):
     assert facing == pytest.approx([0, 0, 1], abs=1e-3), f"the '{view}' screenshot looks from another side"
 
 
+def test_a_screenshot_shows_the_part(part, tmp_path):
+    """The view was stilled again for the write: SOLIDWORKS 2024 saved a blank
+    picture, all white, 1.2 kB, while the tool reported success. A picture
+    with the part on it holds tens of kB."""
+    part.add_box(40, 20, 10)
+    for view in ("iso", "front"):
+        shot = part.screenshot(str(tmp_path / f"{view}.png"), view=view)
+        assert shot["bytes"] > 10_000, f"the '{view}' screenshot is blank ({shot['bytes']} bytes)"
+
+
 def test_screenshot_looks_from_any_direction(part, tmp_path):
     # iso looks only from +x+y+z: what sits underneath, behind, needs another corner
     part.add_box(40, 20, 10)

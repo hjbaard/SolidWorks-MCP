@@ -5464,15 +5464,16 @@ class SolidWorksSession:
         if zoom_mm is not None and (len(zoom_mm) != 2 or any(len(corner) != 3 for corner in zoom_mm)):
             raise SolidWorksError(f"zoom_mm needs two corners [[x1, y1, z1], [x2, y2, z2]] (got {zoom_mm}).")
         rotation = None if from_dir is None else self._view_rotation(from_dir)
-        model = self._require_model()
-        busy = self._command_in_progress(False)  # the view must redraw for the picture
-        screen = binding.wrap(model.ActiveView, self._mod.IModelView)
-        stilled = screen is not None and not screen.EnableGraphicsUpdate  # by _quiet_ui
-        if stilled:
-            screen.EnableGraphicsUpdate = True
-        extension = binding.wrap(model.Extension, self._mod.IModelDocExtension)
+        # The view must draw for the picture. Kept still, as _require_model does
+        # inside a tool call (here and again in export), SOLIDWORKS saved a
+        # blank, all-white image: wake what is still and keep it awake.
+        depth, self._quiet_depth = self._quiet_depth, 0
+        self._wake_all()
+        busy = self._command_in_progress(False)
         shown = {}
         try:
+            model = self._require_model()
+            extension = binding.wrap(model.Extension, self._mod.IModelDocExtension)
             if not show_planes:  # planes and axes run through the part and hide its shape
                 for toggle in (SW_TOGGLE_DISPLAY_PLANES, SW_TOGGLE_DISPLAY_AXES):
                     shown[toggle] = bool(extension.GetUserPreferenceToggle(toggle, 0))
@@ -5484,9 +5485,8 @@ class SolidWorksSession:
                 extension.SetUserPreferenceToggle(toggle, 0, value)
             if shown:
                 model.GraphicsRedraw2()
-            if stilled:
-                screen.EnableGraphicsUpdate = False
             self._command_in_progress(busy)
+            self._quiet_depth = depth
 
     def _take_screenshot(self, model, path, ext, key, zoom_mm, rotation=None) -> dict:
         if rotation is None:

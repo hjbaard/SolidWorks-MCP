@@ -3,6 +3,15 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- `screenshot` saved a blank, all-white image (about 1 kB) while it
+  reported success, since 0.16.0: the view kept still against the
+  SOLIDWORKS 2026 SP4.0 crash was stilled again just before the picture
+  was written. The view now draws for the whole screenshot; every other
+  tool stays still. A test now checks that the picture holds the part.
+
 ## [0.16.1] — 2026-10-15
 
 ### Changed
