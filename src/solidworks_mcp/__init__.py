@@ -5,4 +5,4 @@ API so an AI agent can build, measure and export parametric parts, and run a
 build -> measure -> verify -> correct loop.
 """
 
-__version__ = "0.16.2"
+__version__ = "0.16.3"

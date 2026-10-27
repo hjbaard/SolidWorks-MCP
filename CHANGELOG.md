@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.16.3] — 2026-10-27
 
 ### Fixed
 - `set_material` refused the English material names ('6061 Alloy', 'AISI
