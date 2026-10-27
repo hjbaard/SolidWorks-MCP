@@ -678,6 +678,14 @@ def test_material_bad_name_fails(part):
         part.set_material("Definitely Not A Material 1234")
 
 
+def test_a_misspelt_material_names_the_close_ones(part):
+    """A refused name gives the agent names to choose from, also on a
+    SolidWorks in another language, where the database holds its own names."""
+    part.add_box(40, 20, 10)
+    with pytest.raises(SolidWorksError, match="Close names: .*6061 Alloy"):
+        part.set_material("6061 Aloy")
+
+
 def test_a_material_of_its_own_by_its_density(part, tmp_path):
     # TPU is in none of SolidWorks' libraries. The part shows it by name and
     # keeps it when saved and opened again, while SolidWorks' material

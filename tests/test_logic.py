@@ -951,3 +951,39 @@ def test_the_y_up_planes_are_found_in_any_order(s, monkeypatch, key, name):
                                   "Top Plane": (1, 0, 0, 0, 0, -1, 0, 1, 0, 0, 0, 0),
                                   "Front Plane": (1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)})
     assert s._default_plane(key).Name == name
+
+
+# --- materials in another language ---------------------------------------------------
+
+
+# a localized material database as SolidWorks writes it: the same matid per
+# material, the names in the user's language
+_CHINESE_MATERIALS = ('<?xml version="1.0" encoding="utf-16"?>\n'
+                      '<mstns:materials xmlns:mstns="http://www.solidworks.com/sldmaterials" version="2008.03">\n'
+                      '  <classification name="钢">\n'
+                      '    <material name="普通碳钢" matid="9" envdata="1">\n    </material>\n'
+                      '    <material name="AISI 1020" matid="2" envdata="1">\n    </material>\n'
+                      '  </classification>\n'
+                      '  <classification name="铝合金">\n'
+                      '    <material name="6061 合金" matid="21" envdata="1">\n    </material>\n'
+                      '  </classification>\n'
+                      '</mstns:materials>\n')
+
+
+def test_a_material_database_is_read_by_id():
+    assert SolidWorksSession._materials_by_id(_CHINESE_MATERIALS) == {9: "普通碳钢", 2: "AISI 1020", 21: "6061 合金"}
+
+
+@pytest.mark.parametrize("english,local", [("6061 Alloy", "6061 合金"), ("plain carbon steel", "普通碳钢")])
+def test_an_english_material_name_finds_its_translation(english, local):
+    """A Chinese SolidWorks refused '6061 Alloy' (its database says '6061 合金'),
+    and every agent writes the English names the docs give."""
+    local_by_id = SolidWorksSession._materials_by_id(_CHINESE_MATERIALS)
+    assert SolidWorksSession._localized_material(english, local_by_id) == local, \
+        f"'{english}' was not found in a Chinese material database"
+
+
+def test_a_name_the_english_database_lacks_has_no_translation():
+    local_by_id = SolidWorksSession._materials_by_id(_CHINESE_MATERIALS)
+    assert SolidWorksSession._localized_material("Unobtainium", local_by_id) is None
+    assert SolidWorksSession._localized_material("ABS", local_by_id) is None  # not in this database

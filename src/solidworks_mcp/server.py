@@ -817,6 +817,7 @@ async def set_material(name: str, database: str = "", density_kg_m3: float | Non
     Makes mass and density reflect a real material instead of the 1000 kg/m³
     default. One SolidWorks does not have (say "TPU") comes with its density:
     density_kg_m3=1210 makes it, by that name, carrying only the density.
+    The English names work on a SolidWorks in another language too.
     Returns mass properties including density.
     """
     return await _call(_session.set_material, name, database, density_kg_m3)

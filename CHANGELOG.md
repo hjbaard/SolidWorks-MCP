@@ -3,6 +3,16 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- `set_material` refused the English material names ('6061 Alloy', 'AISI
+  1020') on a SolidWorks in another language, whose database names its
+  materials in that language. An English name is now found there by its
+  material id, which is the same in every language; the localized name
+  still works too. A name that is not found gets the closest names in
+  the error.
+
 ## [0.16.2] — 2026-10-27
 
 ### Fixed
