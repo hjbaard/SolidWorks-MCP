@@ -271,7 +271,8 @@ async def cut_profile_through_plane(points_mm: list, plane: str, depth_mm: float
 
     plane: 'front' (z = 0), 'top' (y = 0), 'right' (x = 0) or the name of another
     plane in the part ('Plane1'); points_mm = 3D [x, y, z] points ON that plane
-    (e.g. x = 0 for 'right'). Cuts through all in
+    (e.g. x = 0 for 'right'), or all [u, v] in the plane's own frame (as
+    add_plane and add_sketch give it). Cuts through all in
     both directions (depth_mm omitted) or depth_mm in total, centred on the
     plane. For shapes seen from the side: wedges, windows, symmetric recesses.
     corner_radii_mm rounds the corners as for add_extruded_profile.
@@ -306,7 +307,7 @@ async def add_extruded_profile_on_plane(points_mm: list, plane: str, depth_mm: f
     """Extrude a polygon drawn on a reference plane, such as one add_plane made at an angle.
 
     points_mm = 3D [x, y, z] points ON the plane (origin + u x_axis + v y_axis
-    from add_plane). depth_mm along the plane's normal, or the other way with
+    from add_plane), or all [u, v] in that frame. depth_mm along the plane's normal, or the other way with
     reverse=True; merged with the part. corner_radii_mm, draft_deg and merge
     work as for add_extruded_profile. Returns mass properties.
     """
@@ -730,12 +731,14 @@ async def compare_with_mesh(path: str, axis: str, heights_mm: list, frame: str =
 
 
 @mcp.tool()
-async def list_dimensions() -> dict:
+async def list_dimensions(contains: str | None = None) -> dict:
     """List every dimension in the current part: name (for set_dimension), feature, value, unit.
 
     For a part opened from disk, or when the names the tools returned are gone.
+    contains (e.g. 'Sketch3' or 'Pad') keeps those whose name or feature holds
+    that text; use it on a large part, whose full list is too long to read.
     """
-    return await _call(_session.list_dimensions)
+    return await _call(_session.list_dimensions, contains)
 
 
 @mcp.tool()
@@ -984,7 +987,9 @@ async def check_printability(up: str = "+z", overhang_deg: float = 45.0,
     where the rest of it rests on material (the ends of a chamfered pad's edge
     beside a tube), with length, height, centre and faces. With min_wall_mm (e.g. two
     nozzle widths) also the walls thinner than that, measured straight through
-    the material from points spread over every face, with where each is thinnest.
+    the material from points spread over every face, with where each is thinnest;
+    that stops after a minute on a detailed part, and `rays` then says how much
+    it measured.
     A spot right beside an edge where faces meet at a sharp angle reads as thin
     as the wedge of material there is: that is the edge, not a wall.
     """

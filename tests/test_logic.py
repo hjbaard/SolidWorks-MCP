@@ -586,6 +586,16 @@ def test_keep_inside_cuts_through_all(s):
         s.cut_profile_through_plane([[0, 0, 0], [0, 1, 0], [0, 0, 1]], "right", depth_mm=5, keep_inside=True)
 
 
+@pytest.mark.parametrize("tool", ["cut_profile_through_plane", "add_extruded_profile_on_plane"])
+@pytest.mark.parametrize("points", [[[0, 0], [5, 0, 0], [0, 5]], [[0, 0], [5], [0, 5]], [[0, 0], [5, "a"], [0, 5]],
+                                    [[0, 0, 0, 0], [5, 0, 0, 0], [0, 5, 0, 0]]])
+def test_plane_points_of_the_wrong_shape_are_refused_before_solidworks(s, tool, points):
+    """[u, v] points given to cut_profile_through_plane, which took [x, y, z],
+    took SolidWorks down with the unsaved work in it."""
+    with pytest.raises(SolidWorksError, match=r"\[u, v\] on the plane or all as \[x, y, z\]"):
+        getattr(s, tool)(points, "right", 5)
+
+
 @pytest.mark.parametrize("rim,depth,message", [(0, 3, "rim must be > 0"), (2, -1, "depth must be > 0")])
 def test_an_offset_pocket_needs_a_rim_and_a_depth(s, rim, depth, message):
     with pytest.raises(SolidWorksError, match=message):
@@ -1033,3 +1043,42 @@ def test_a_name_the_english_database_lacks_has_no_translation():
     local_by_id = SolidWorksSession._materials_by_id(_CHINESE_MATERIALS)
     assert SolidWorksSession._localized_material("Unobtainium", local_by_id) is None
     assert SolidWorksSession._localized_material("ABS", local_by_id) is None  # not in this database
+
+
+class _Feature:
+    def __init__(self, name):
+        self.Name = name
+
+
+def test_list_dimensions_keeps_those_whose_name_or_feature_holds_the_text(s, monkeypatch):
+    """On a part of 333 features the full list was 149 kB, too large to come
+    back to the agent."""
+    features = {"BlockExtrude": ["D1@BlockExtrude", "width@Sketch1"], "DcdcPadR": ["D1@DcdcPadR"],
+                "Fillet3": ["D1@Fillet3"]}
+    monkeypatch.setattr(s, "_require_part", lambda: None)
+    monkeypatch.setattr(s, "_iter_features", lambda: [_Feature(name) for name in features])
+    monkeypatch.setattr(s, "_dimension_entries", lambda feat: [{"name": n, "feature": feat.Name}
+                                                               for n in features[feat.Name]])
+    assert [d["name"] for d in s.list_dimensions(contains="dcdc")["dimensions"]] == ["D1@DcdcPadR"]
+    assert [d["name"] for d in s.list_dimensions(contains="Sketch1")["dimensions"]] == ["width@Sketch1"]
+    assert s.list_dimensions()["count"] == 4
+
+
+def test_the_wall_check_stops_in_time_and_says_how_much_it_measured(s, monkeypatch):
+    """24064 rays took 151 s on a small cap, past the 120 s a call may take:
+    the agent got 'a modal dialog is probably open' and no result at all."""
+    import solidworks_mcp.session as session_module
+    clock = iter(range(0, 10_000, 40))  # every look at the clock, 40 s later
+    monkeypatch.setattr(session_module.time, "monotonic", lambda: next(clock))
+    cast = []
+
+    def rays(body, starts, directions):
+        cast.append(len(starts) // 3)
+        return [(ray, 2.0, True) for ray in range(len(starts) // 3)]  # each leaves the material 2 mm on
+
+    monkeypatch.setattr(s, "_ray_hits", rays)
+    triangles = _quad(0, [(0, 0, 0), (100, 0, 0), (100, 100, 0), (0, 100, 0)], (0, 0, -1))
+    walls = s._thin_walls(None, triangles, 0.8)
+    assert len(cast) < 10 and walls["rays"]["measured"] == sum(cast) < walls["rays"]["planned"], walls["rays"]
+    assert walls["thinnest_mm"] == pytest.approx(2) and walls["faces"] == []
+    assert "Stopped after" in walls["rays"]["note"]

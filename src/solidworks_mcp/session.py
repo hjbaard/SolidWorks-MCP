@@ -19,6 +19,7 @@ import os
 import re
 import shutil
 import tempfile
+import time
 import uuid
 from importlib import resources
 from xml.sax.saxutils import quoteattr
@@ -2412,6 +2413,25 @@ class SolidWorksSession:
         p = binding.wrap(mathutil.CreatePoint(coords), self._mod.IMathPoint)
         return binding.wrap(p.MultiplyTransform(xform), self._mod.IMathPoint).ArrayData
 
+    @staticmethod
+    def _plane_point_size(points_mm) -> int:
+        """2 for points [u, v] in a plane's own frame, 3 for [x, y, z] on it.
+        Checked before any sketch opens: [u, v] given where [x, y, z] was
+        read took SolidWorks down."""
+        sizes = {len(p) if isinstance(p, (list, tuple)) and all(isinstance(c, (int, float)) for c in p) else 0
+                 for p in points_mm}
+        if len(sizes) != 1 or sizes.pop() not in (2, 3):
+            raise SolidWorksError(f"Give the points all as [u, v] on the plane or all as [x, y, z] on it, in mm "
+                                  f"(got {points_mm}).")
+        return len(points_mm[0])
+
+    def _plane_points_uv(self, sketch, points_mm, in_plane: bool, label: str) -> list:
+        """The points as the open sketch's (u, v) in metres: [u, v] are that
+        already (the frame add_plane and add_sketch give); [x, y, z] must lie on the plane."""
+        if in_plane:
+            return [(mm_to_m(u), mm_to_m(v)) for u, v in points_mm]
+        return [self._model_to_sketch_uv(sketch, *(mm_to_m(c) for c in p), label) for p in points_mm]
+
     def _model_to_sketch_uv(self, sketch, x_m, y_m, z_m, face):
         """Map a 3D model point (m) to the active sketch's local 2D (u, v) (m).
 
@@ -2767,7 +2787,8 @@ class SolidWorksSession:
 
         plane: 'front' (z = 0), 'top' (y = 0), 'right' (x = 0) or the name of
         another plane in the part (e.g. 'Plane1'). points_mm are 3D [x, y, z]
-        vertices ON that plane (e.g. x = 0 for 'right'). The cut runs
+        vertices ON that plane (e.g. x = 0 for 'right'), or all [u, v] in the
+        plane's own frame. The cut runs
         through all in both directions (depth_mm None), or depth_mm in total,
         centred on the plane. For shapes seen from the side: wedges, windows and
         recesses symmetric about the plane. corner_radii_mm rounds the corners
@@ -2781,9 +2802,10 @@ class SolidWorksSession:
             raise SolidWorksError(f"depth must be > 0 (got {depth_mm}).")
         if keep_inside and depth_mm is not None:
             raise SolidWorksError("keep_inside cuts through all: leave depth_mm out.")
-        model = self._require_model()
         if not points_mm:
             raise SolidWorksError("No profile points given.")
+        in_plane = self._plane_point_size(points_mm) == 2
+        model = self._require_model()
         corners = self._profile_corners(points_mm, corner_radii_mm)
 
         ref, label = self._named_plane(plane)
@@ -2793,9 +2815,7 @@ class SolidWorksSession:
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
         sketch = self._open_face_sketch(sk, label)
         try:
-            uv_m = [self._model_to_sketch_uv(sketch, mm_to_m(p[0]), mm_to_m(p[1]),
-                                             mm_to_m(p[2]), label)
-                    for p in points_mm]
+            uv_m = self._plane_points_uv(sketch, points_mm, in_plane, label)
             defined = self._draw_defined_polygon(sk, self._clean_polygon(uv_m), corners)
         finally:
             model.ClearSelection2(True)
@@ -2826,7 +2846,8 @@ class SolidWorksSession:
 
         plane: 'front', 'top', 'right' or a plane by name, such as one add_plane
         made at an angle. points_mm are 3D [x, y, z] vertices ON that plane
-        (add_plane gives its origin and axes: origin + u x_axis + v y_axis).
+        (add_plane gives its origin and axes: origin + u x_axis + v y_axis), or
+        all [u, v] in that frame.
         depth_mm along the plane's normal, or the other way with reverse=True.
         corner_radii_mm, draft_deg and merge work as for add_extruded_profile.
         Returns mass properties.
@@ -2835,6 +2856,7 @@ class SolidWorksSession:
             raise SolidWorksError(f"depth must be > 0 (got {depth_mm}).")
         if not points_mm:
             raise SolidWorksError("No profile points given.")
+        in_plane = self._plane_point_size(points_mm) == 2
         self._check_draft(draft_deg)
         corners = self._profile_corners(points_mm, corner_radii_mm)
         model = self._require_model()
@@ -2845,7 +2867,7 @@ class SolidWorksSession:
         sk = binding.wrap(model.SketchManager, self._mod.ISketchManager)
         sketch = self._open_face_sketch(sk, label)
         try:
-            uv_m = [self._model_to_sketch_uv(sketch, *(mm_to_m(c) for c in p), label) for p in points_mm]
+            uv_m = self._plane_points_uv(sketch, points_mm, in_plane, label)
             defined = self._draw_defined_polygon(sk, self._clean_polygon(uv_m), corners)
         finally:
             model.ClearSelection2(True)
@@ -4335,17 +4357,22 @@ class SolidWorksSession:
                 failing.append({"name": feat.Name, "type": feat.GetTypeName2(), **self._error_entry(code, warning)})
         return failing
 
-    def list_dimensions(self) -> dict:
+    def list_dimensions(self, contains: str | None = None) -> dict:
         """Every dimension in the part, feature by feature, as set_dimension takes it.
 
         For a part opened from disk, or after the tool results that named them
         are gone. Values are mm, angles degrees; `driving` is False for a
         reference (driven) dimension, which set_dimension cannot change.
+        contains keeps those whose name or feature holds that text (any case):
+        a part of hundreds of features lists too much to read back.
         """
         self._require_part()
+        needle = (contains or "").lower()
         dims, seen = [], set()
         for feat in self._iter_features():
             for entry in self._dimension_entries(feat):
+                if needle not in entry["name"].lower() and needle not in entry["feature"].lower():
+                    continue
                 if entry["name"] not in seen:
                     seen.add(entry["name"])
                     dims.append(entry)
@@ -5416,19 +5443,10 @@ class SolidWorksSession:
             return []
         skew = [0.267, 0.535, 0.802]  # along no model axis, so no ray grazes a face
         starts = [mm_to_m(c - self._EDGE_PROBE_MM * u) for point, _, _ in probes for c, u in zip(point, up)]
-        model = self._model
-        hits = model.RayIntersections(
-            win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_DISPATCH, [body._oleobj_]),
-            win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, starts),
-            win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, skew * len(probes)),
-            SW_RAY_NORMALS_ENTRY_EXIT, 0.0, 0.0)
-        points = model.GetRayIntersectionsPoints() if hits else ()
         first = {}
-        for h in range(hits):
-            row = points[h * RAY_HIT_WIDTH:(h + 1) * RAY_HIT_WIDTH]
-            ray, distance = int(row[1]), math.dist(row[3:6], starts[3 * int(row[1]):3 * int(row[1]) + 3])
+        for ray, distance, leaving in self._ray_hits(body, starts, skew * len(probes)):
             if distance < first.get(ray, (math.inf,))[0]:
-                first[ray] = (distance, bool(int(row[2]) & SW_RAY_HIT_EXIT))
+                first[ray] = (distance, leaving)
         loose = [probes[ray] for ray in range(len(probes)) if not first.get(ray, (0, False))[1]]
         return self._stretches(loose, height, bed)
 
@@ -5488,15 +5506,47 @@ class SolidWorksSession:
         stride = math.ceil(len(samples) / cls._MAX_WALL_SAMPLES)  # every stride-th: still spread over all faces
         return samples[::stride], spacing * math.sqrt(stride)
 
+    _WALL_BATCH_RAYS = 2000   # rays per call to SolidWorks
+    _WALL_TIME_S = 60.0       # a call may take 120 s: 24064 rays on a small cap took 151
+
     def _thin_walls(self, body, triangles, min_wall_mm) -> dict:
         """Wall thickness straight through the material from sample points on
-        every face (one batch of rays), and the faces thinner than min_wall_mm."""
+        every face, and the faces thinner than min_wall_mm. The rays go in
+        batches that each spread over all faces, until _WALL_TIME_S has
+        passed; `rays` says how many were measured of how many planned."""
         samples, spacing = self._wall_samples(triangles, min_wall_mm)
-        starts, directions, owners = [], [], []
-        for index, point, normal in samples:
-            starts += [mm_to_m(p - 1e-4 * n) for p, n in zip(point, normal)]  # just inside the material
-            directions += [-n for n in normal]
-            owners.append((index, point))
+        batches = max(1, math.ceil(len(samples) / self._WALL_BATCH_RAYS))
+        began, through, measured = time.monotonic(), {}, 0
+        for batch in range(batches):
+            if batch and time.monotonic() - began > self._WALL_TIME_S:
+                break
+            chosen = samples[batch::batches]
+            starts = [mm_to_m(p - 1e-4 * n) for _, point, normal in chosen
+                      for p, n in zip(point, normal)]  # just inside the material
+            directions = [-n for _, _, normal in chosen for n in normal]
+            for ray, depth, leaving in self._ray_hits(body, starts, directions):
+                if not leaving:
+                    continue  # a sample on a hollow face's facet starts in the air and enters first
+                index, point, _ = chosen[ray]
+                if 1e-3 < depth < through.get(index, (math.inf,))[0]:
+                    through[index] = (depth, point)
+            measured += len(chosen)
+        if not through:
+            raise SolidWorksError("No ray came out of the part: the wall thickness could not be measured.")
+        thin = [{"index": index, "thinnest_mm": round(depth, 3), "at_mm": [round(c, 3) for c in point]}
+                for index, (depth, point) in sorted(through.items()) if depth < min_wall_mm - 1e-6]
+        rays = {"measured": measured, "planned": len(samples)}
+        if measured < len(samples):
+            rays["note"] = (f"Stopped after {self._WALL_TIME_S:g} s, with {measured} of {len(samples)} "
+                            "rays spread over all faces: a thin spot between them may be missed. A larger "
+                            "min_wall_mm plans fewer rays.")
+        return {"min_wall_mm": min_wall_mm, "thinnest_mm": round(min(d for d, _ in through.values()), 3),
+                "sample_spacing_mm": round(spacing * math.sqrt(len(samples) / measured), 3), "rays": rays,
+                "faces": thin}
+
+    def _ray_hits(self, body, starts, directions) -> list:
+        """Cast rays (starts in m, unit directions) at the body in one call:
+        (ray, distance in mm, whether it leaves the material there) per hit."""
         model = self._model
         hits = model.RayIntersections(
             win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_DISPATCH, [body._oleobj_]),
@@ -5504,26 +5554,13 @@ class SolidWorksSession:
             win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, directions),
             SW_RAY_NORMALS_ENTRY_EXIT, 0.0, 0.0)
         points = model.GetRayIntersectionsPoints() if hits else ()
-        through = {}
+        found = []
         for h in range(hits):
             row = points[h * RAY_HIT_WIDTH:(h + 1) * RAY_HIT_WIDTH]
             ray = int(row[1])
-            if not int(row[2]) & SW_RAY_HIT_EXIT:
-                continue  # a sample on a hollow face's facet starts in the air and enters first
-            depth = m_to_mm(math.dist(row[3:6], starts[3 * ray:3 * ray + 3]))
-            if depth > 1e-3 and depth < through.get(ray, math.inf):
-                through[ray] = depth
-        if not through:
-            raise SolidWorksError("No ray came out of the part: the wall thickness could not be measured.")
-        thinnest = {}
-        for ray, depth in through.items():
-            index, point = owners[ray]
-            if depth < thinnest.get(index, (math.inf,))[0]:
-                thinnest[index] = (depth, point)
-        thin = [{"index": index, "thinnest_mm": round(depth, 3), "at_mm": [round(c, 3) for c in point]}
-                for index, (depth, point) in sorted(thinnest.items()) if depth < min_wall_mm - 1e-6]
-        return {"min_wall_mm": min_wall_mm, "thinnest_mm": round(min(d for d, _ in thinnest.values()), 3),
-                "sample_spacing_mm": round(spacing, 3), "faces": thin}
+            found.append((ray, m_to_mm(math.dist(row[3:6], starts[3 * ray:3 * ray + 3])),
+                          bool(int(row[2]) & SW_RAY_HIT_EXIT)))
+        return found
 
     # --- output ---------------------------------------------------------------
 

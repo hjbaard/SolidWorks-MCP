@@ -135,6 +135,21 @@ def test_an_offset_plane_carries_an_extrusion_either_way(part):
     assert box(down)["min_mm"][2] == pytest.approx(0) and vol(down) == pytest.approx(8000 + 300 + 500)
 
 
+def test_points_on_a_plane_may_be_given_as_u_v(part):
+    """[u, v] in the plane's own frame, as add_sketch takes them, cut the same
+    window through a turned plane as the [x, y, z] points on it."""
+    part.add_box(40, 20, 10)
+    plane = part.add_plane("right", angle_deg=30, about="y", name="Cheek")
+    # a 6 x 6 window around where the plane meets the box's middle, y 10, z 5
+    u, v = (sum((c - o) * a for c, o, a in zip((0, 10, 5), plane["origin_mm"], plane[axis]))
+            for axis in ("x_axis", "y_axis"))
+    window = ((u - 3, v - 3), (u + 3, v - 3), (u + 3, v + 3), (u - 3, v + 3))
+    by_uv = vol(part.cut_profile_through_plane([list(p) for p in window], "Cheek"))
+    part.delete_feature(part.list_features()["features"][-1]["name"])
+    by_xyz = vol(part.cut_profile_through_plane([on_plane(plane, u, v) for u, v in window], "Cheek"))
+    assert by_uv == pytest.approx(by_xyz) and by_uv < 8000, (by_uv, by_xyz)
+
+
 def test_a_turned_plane_holds_a_turned_block(part):
     """Front turned 30 degrees about y faces (sin 30, 0, cos 30); a 10 x 10
     square on it extruded 4 is a 400 mm^3 block leaning with it. Its angle is a

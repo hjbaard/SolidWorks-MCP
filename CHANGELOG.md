@@ -13,6 +13,19 @@ All notable changes to this project are documented here. This project follows
   rises from with air right below, such as the ends of a chamfered pad's
   edge that rests on a tube only in the middle. Each comes with its
   height above the bed, where it is and its faces.
+- `list_dimensions(contains=...)` keeps the dimensions whose name or
+  feature holds the text: on a part of hundreds of features the full list
+  was too long to read back.
+- `cut_profile_through_plane` and `add_extruded_profile_on_plane` also
+  take the points as [u, v] in the plane's own frame, as `add_sketch` does.
+
+### Fixed
+- [u, v] points given where [x, y, z] were expected took SolidWorks down.
+  The points' shape is now checked before any sketch opens.
+- The wall-thickness check of `check_printability` could run past the
+  120 s a call may take (24064 rays took 151 s on a small part), and the
+  agent got no result. It now stops after a minute with the rays spread
+  over all faces, and `rays` says how many it measured.
 
 ## [0.16.3] — 2026-10-27
 
