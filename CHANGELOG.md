@@ -18,6 +18,16 @@ All notable changes to this project are documented here. This project follows
   was too long to read back.
 - `cut_profile_through_plane` and `add_extruded_profile_on_plane` also
   take the points as [u, v] in the plane's own frame, as `add_sketch` does.
+- `add_shell` opens several faces at once: a list of directions and
+  list_faces indexes (`["+z", "#5"]`). Shell before cutting openings: a
+  shell after them puts a wall along every cut edge.
+- `replace_component(name, path)` puts another file in a component's
+  place, keeping its position and, where they find their faces, its mates.
+  `list_components` gives a component that shows no geometry a `problem`:
+  a part made anew under the same path vanished from its assembly.
+- `set_dimension` names the features that fail since the change in
+  `broken_features` (a later cut now off the part, a split whose bodies
+  moved), with their error.
 
 ### Fixed
 - [u, v] points given where [x, y, z] were expected took SolidWorks down.
@@ -26,6 +36,9 @@ All notable changes to this project are documented here. This project follows
   120 s a call may take (24064 rays took 151 s on a small part), and the
   agent got no result. It now stops after a minute with the rays spread
   over all faces, and `rays` says how many it measured.
+- A STEP, IGES or Parasolid import over 30 MB is refused unless
+  `allow_large=True`: a 77 MB STEP ran past the 2 minutes a call may take
+  and kept SolidWorks busy, with popups.
 
 ## [0.16.3] — 2026-10-27
 

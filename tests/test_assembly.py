@@ -117,6 +117,24 @@ def test_insert_component_missing_file_raises(assembly, tmp_path):
         assembly.insert_component(str(tmp_path / "nope.sldprt"))
 
 
+def test_replace_component_puts_another_part_in_its_place(assembly, blocks):
+    """A part made anew under the same path vanished from its assembly (no
+    box); deleting and inserting it again lost its place and mates."""
+    two_blocks(assembly, blocks)
+    replaced = assembly.replace_component("block_b-1", blocks["block_a"])
+    assert os.path.normcase(replaced["component"]["path"]) == os.path.normcase(blocks["block_a"])
+    assert replaced["component"]["position_mm"] == pytest.approx([100, 0, 0]), "the new part lost the old one's place"
+    box = replaced["component"]["bounding_box_mm"]
+    assert [hi - lo for lo, hi in zip(box["min_mm"], box["max_mm"])] == pytest.approx(BLOCK_A, abs=1e-3)
+    assert assembly.list_components()["count"] == 2
+
+
+def test_replace_component_refuses_a_missing_file(assembly, blocks, tmp_path):
+    two_blocks(assembly, blocks)
+    with pytest.raises(SolidWorksError, match="No such file"):
+        assembly.replace_component("block_b-1", str(tmp_path / "gone.sldprt"))
+
+
 def test_set_component_transform_moves_and_reads_back(assembly, blocks):
     two_blocks(assembly, blocks)
     moved = assembly.set_component_transform("block_b", 200, 30, -15)

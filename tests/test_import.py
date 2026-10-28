@@ -28,6 +28,17 @@ def test_open_part_names_the_formats_it_takes(tmp_path):
         SolidWorksSession().open_part(str(drawing))  # refused before SolidWorks is needed
 
 
+@pytest.mark.parametrize("tool", ["open_part", "open_assembly"])
+def test_a_large_import_is_refused_unless_asked_for(tmp_path, tool):
+    """A 77 MB STEP ran past the 2 minutes a call may take; SolidWorks stayed
+    busy and showed 'Failed to open file' popups to the user."""
+    board = tmp_path / "board.step"
+    with open(board, "wb") as f:
+        f.truncate(31 * 1024 * 1024)
+    with pytest.raises(SolidWorksError, match="31 MB.*allow_large=True"):
+        getattr(SolidWorksSession(), tool)(str(board))  # refused before SolidWorks is needed
+
+
 @pytest.mark.solidworks
 @pytest.mark.parametrize("extension", ["step", "x_t"])
 def test_an_imported_part_can_be_built_on(part, tmp_path, extension):

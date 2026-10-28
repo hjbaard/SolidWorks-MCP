@@ -382,15 +382,16 @@ class SolidWorksSession:
         self._write_via_saveas3(abs_path)
         return {"ok": True, "path": abs_path, "bytes": os.path.getsize(abs_path)}
 
-    def open_part(self, path: str) -> dict:
+    def open_part(self, path: str, allow_large: bool = False) -> dict:
         """Open an existing .sldprt, or import a STEP, IGES or Parasolid file as a
         new part; it becomes the current part.
 
         An imported body has no history, but the tools work on it: holes and
         pockets on its faces, bosses, fillets. An import also returns its solid
         body count and mass properties, to see what came in and where it lies.
+        A file over _IMPORT_LIMIT_MB is refused unless allow_large.
         """
-        abs_path, imported = self._native_or_neutral(path, "sldprt", "a part")
+        abs_path, imported = self._native_or_neutral(path, "sldprt", "a part", allow_large)
         sw = self._ensure()
         if imported:
             model = self._import_document(sw, abs_path, SW_DOC_PART)
@@ -410,10 +411,12 @@ class SolidWorksSession:
         self._model = model
         return {"ok": True, "title": model.GetTitle(), "path": abs_path}
 
+    _IMPORT_LIMIT_MB = 30  # a 77 MB STEP ran past the 120 s call limit
+
     @staticmethod
-    def _native_or_neutral(path: str, native: str, kind: str) -> tuple:
-        """(absolute path, whether it needs an import); other formats are refused
-        before SolidWorks is touched."""
+    def _native_or_neutral(path: str, native: str, kind: str, allow_large: bool = False) -> tuple:
+        """(absolute path, whether it needs an import); other formats, and an
+        import over _IMPORT_LIMIT_MB, are refused before SolidWorks is touched."""
         abs_path = os.path.abspath(path)
         extension = os.path.splitext(abs_path)[1].lower().lstrip(".")
         if extension != native and extension not in IMPORT_FORMATS:
@@ -423,6 +426,13 @@ class SolidWorksSession:
             )
         if not os.path.isfile(abs_path):
             raise SolidWorksError(f"File not found: {abs_path}")
+        size_mb = os.path.getsize(abs_path) / 2 ** 20
+        if extension != native and size_mb > SolidWorksSession._IMPORT_LIMIT_MB and not allow_large:
+            raise SolidWorksError(
+                f"{os.path.basename(abs_path)} is {size_mb:.0f} MB: an import that large can run past the 2 minutes "
+                "a call may take, and SolidWorks keeps working on it (a 77 MB STEP did, with popups). Import it "
+                "in SolidWorks by hand and save it as .sldprt/.sldasm, use a simplified model, or pass "
+                "allow_large=True to try anyway.")
         return abs_path, extension != native
 
     def _import_document(self, sw, abs_path: str, doc_type: int):
@@ -3366,25 +3376,33 @@ class SolidWorksSession:
         cosines = [sum(n * d for n, d in zip(normal, direction)) for *_, normal in triangles]
         return math.degrees(math.acos(max(-1.0, min(1.0, sum(cosines) / len(cosines)))))
 
-    def add_shell(self, thickness_mm: float, open_face: str = "+z") -> dict:
-        """Hollow the part to a wall of `thickness_mm`, optionally opening one face.
+    def add_shell(self, thickness_mm: float, open_face: str | list = "+z") -> dict:
+        """Hollow the part to a wall of `thickness_mm`, optionally opening faces.
 
         open_face: a direction '+z'/'-z'/'+x'/... selects the planar face to remove
-        (an open shell); 'none' makes a fully closed hollow. Returns mass
+        (an open shell), '#5' the face of that list_faces index; a list opens
+        several at once; 'none' makes a fully closed hollow. Returns mass
         properties (volume drops to just the walls). InsertFeatureShell returns no
         feature object, so there is no feature name.
         """
-        model = self._require_model()
         if thickness_mm <= 0:
             raise SolidWorksError(f"thickness must be > 0 (got {thickness_mm}).")
-
+        opened = self._open_faces(open_face)
+        model = self._require_model()
         body = self._solid_body()
-        opened = (open_face or "none").lower()
-        if opened == "none":
-            model.ClearSelection2(True)
-        else:
-            normal, side = self._parse_face_selector(opened)
-            self._select_planar_face(body, normal, opened, side)
+        model.ClearSelection2(True)
+        for selector in opened:
+            index = self._face_index(selector)
+            if index is None:
+                normal, side = self._parse_face_selector(selector)
+                face = self._planar_face_by_normal(body, normal, side)
+            else:
+                faces = self._body_faces(body)
+                face = faces[index] if index < len(faces) else None
+            if face is None:
+                raise SolidWorksError(f"No face '{selector}' to open: see list_faces.")
+            if not binding.wrap(face, self._mod.IEntity).Select4(True, None):
+                raise SolidWorksError(f"Could not select the face '{selector}'.")
 
         # Outward=False: the wall grows inward, so the outer size is unchanged.
         model.InsertFeatureShell(mm_to_m(thickness_mm), False)
@@ -3392,7 +3410,23 @@ class SolidWorksSession:
         props = self.get_mass_properties()["mass_properties"]
         if abs(props["volume_mm3"]) < 1e-6:
             raise SolidWorksError("The shell removed all material; is the wall too thick?")
-        return {"ok": True, "open_face": opened, "rebuild_ok": rebuilt_ok, "mass_properties": props}
+        return {"ok": True, "open_face": open_face, "rebuild_ok": rebuilt_ok, "mass_properties": props}
+
+    def _open_faces(self, open_face) -> list:
+        """The faces add_shell opens: [] for 'none', else the selectors, each a
+        direction or '#index', checked before SolidWorks is touched."""
+        if isinstance(open_face, str) and open_face.strip().lower() in ("none", ""):
+            return []
+        selectors = [open_face] if isinstance(open_face, str) else list(open_face or [])
+        if not selectors:
+            raise SolidWorksError("open_face needs a face, a list of faces, or 'none'.")
+        for selector in selectors:
+            if self._face_index(selector) is None:
+                try:
+                    self._parse_face_selector(str(selector))
+                except SolidWorksError as exc:
+                    raise SolidWorksError(f"open_face '{selector}' is no direction or '#index': {exc}") from exc
+        return [str(s).strip().lower() for s in selectors]
 
     def _first_edge_along(self, body, direction):
         """First straight edge parallel to `direction`; returns (p1, p2, dispatch).
@@ -4089,9 +4123,13 @@ class SolidWorksSession:
         or 'y2', from the origin) takes a sign, -5 being the other side of
         the origin; any other dimension is a size and cannot be negative.
         A value SolidWorks does not take is refused, the part left as it was.
+        `broken_features` names the features that fail since the change (a
+        later cut whose sketch now lies off the part, a split whose bodies
+        changed), with their error; fix or undo before going on.
         """
         self._require_model()
         dim = self._dimension(dimension_name)
+        failing_before = {f["name"] for f in self._failing_features()}
         unit, to_system, from_system = self._dimension_unit(dim)
         coordinate = self._coordinate_of(dimension_name)
         if coordinate is None and unit == "mm" and value_mm < 0:
@@ -4127,6 +4165,7 @@ class SolidWorksSession:
             f"new_value_{unit}": round(applied + value_mm - target, 6),  # -30, not the 330 SolidWorks holds
             "applied": True,
             "rebuild_ok": rebuilt_ok,
+            "broken_features": [f for f in self._failing_features() if f["name"] not in failing_before],
             "mass_properties": self.get_mass_properties()["mass_properties"],
         }
 
@@ -5851,10 +5890,11 @@ class SolidWorksSession:
         self._model = model
         return {"ok": True, "title": model.GetTitle()}
 
-    def open_assembly(self, path: str) -> dict:
+    def open_assembly(self, path: str, allow_large: bool = False) -> dict:
         """Open an existing .sldasm, or import a STEP, IGES or Parasolid assembly;
-        it becomes the current document. An import reports its component count."""
-        abs_path, imported = self._native_or_neutral(path, "sldasm", "an assembly")
+        it becomes the current document. An import reports its component count;
+        one over _IMPORT_LIMIT_MB is refused unless allow_large."""
+        abs_path, imported = self._native_or_neutral(path, "sldasm", "an assembly", allow_large)
         sw = self._ensure()
         if imported:
             self._model = self._import_document(sw, abs_path, SW_DOC_ASSEMBLY)
@@ -6109,13 +6149,44 @@ class SolidWorksSession:
         return result[-3:]
 
     def _component_entry(self, comp) -> dict:
-        return {
+        entry = {
             "name": comp.Name2,
             "path": comp.GetPathName(),
             "fixed": bool(comp.IsFixed()),
             **self._placement(comp),
             "bounding_box_mm": self._component_box(comp),
         }
+        if entry["bounding_box_mm"] is None:
+            # a part made anew and saved under the same path showed nothing in
+            # its assembly: SolidWorks no longer took the file for that component
+            entry["problem"] = ("shows no geometry: its file may be missing or made anew under the same name; "
+                                "replace_component puts the file back in its place")
+        return entry
+
+    def replace_component(self, name: str, path: str, reattach_mates: bool = True) -> dict:
+        """Put the model at `path` in the place of component `name`, keeping its
+        position and, with reattach_mates, its mates where they still find
+        their faces. Returns the new component's entry."""
+        if not os.path.isfile(path):
+            raise SolidWorksError(f"No such file: {path}")
+        asm = self._require_assembly()
+        comp = self._component_by_name(asm, name)
+        before = {c.Name2 for c in self._components(asm)}
+        model = self._model
+        model.ClearSelection2(True)
+        selmgr = binding.wrap(model.SelectionManager, self._mod.ISelectionMgr)
+        if not comp.Select4(False, selmgr.CreateSelectData(), False):
+            raise SolidWorksError(f"Could not select component '{comp.Name2}'.")
+        done = asm.ReplaceComponents2(os.path.abspath(path), "", False, 0, bool(reattach_mates))
+        model.ClearSelection2(True)
+        model.ForceRebuild3(False)
+        target = os.path.normcase(os.path.abspath(path))
+        new = [c for c in self._components(asm)
+               if os.path.normcase(c.GetPathName()) == target and (c.Name2 not in before or c.Name2 == comp.Name2)]
+        if not done or not new:
+            raise SolidWorksError(f"SolidWorks did not replace '{name}' with {path}.")
+        return {"ok": True, "replaced": name, "component": self._component_entry(new[0]),
+                "mate_errors": [entry for mate in self._mates() if "error" in (entry := self._mate_entry(mate))]}
 
     def _fix_component(self, asm, comp) -> None:
         """Pin a component in place (FixComponent acts on the selection), and verify."""

@@ -682,11 +682,14 @@ async def add_mirror(plane: str, offset_mm: float = 0.0, features: list | None =
 
 
 @mcp.tool()
-async def add_shell(thickness_mm: float, open_face: str = "+z") -> dict:
-    """Hollow the current part to a wall of thickness_mm, opening one face.
+async def add_shell(thickness_mm: float, open_face: str | list = "+z") -> dict:
+    """Hollow the current part to a wall of thickness_mm, opening one face or more.
 
     open_face: a direction "+z"/"-z"/"+x"/... removes that planar face (open
-    shell); "none" makes a closed hollow. Returns the resulting mass properties.
+    shell), "#5" the face of that list_faces index, and a list ["+z", "#5"]
+    opens several; "none" makes a closed hollow. Shell before cutting openings:
+    a shell after them puts a wall along every cut edge. Returns the resulting
+    mass properties.
     """
     return await _call(_session.add_shell, thickness_mm, open_face)
 
@@ -695,7 +698,9 @@ async def add_shell(thickness_mm: float, open_face: str = "+z") -> dict:
 async def set_dimension(dimension_name: str, value_mm: float) -> dict:
     """Set a named driving dimension (e.g. 'D1@BlockExtrude') in mm, rebuild, and remeasure.
 
-    This is the parametric edit at the heart of the correction loop. Every
+    This is the parametric edit at the heart of the correction loop. The result's
+    broken_features names the features that fail since the change (a later cut
+    now off the part, a split whose bodies moved): fix or undo them first. Every
     modelling tool returns its dimensions by role in `dimensions`. An angle (a
     revolve, an angle mate) takes degrees; list_dimensions shows the unit. A
     point's coordinate from the origin (a sketch's 'x3', 'y2') takes a sign,
@@ -1059,15 +1064,16 @@ async def save_part(path: str) -> dict:
 
 
 @mcp.tool()
-async def open_part(path: str) -> dict:
+async def open_part(path: str, allow_large: bool = False) -> dict:
     """Open a .sldprt, or import a STEP/IGES/Parasolid file as a new part; it becomes the current part.
 
     list_features shows its history, list_dimensions its dimensions. An
     imported body has no history, but the tools work on it (holes and pockets
     on its faces, bosses, fillets); an import returns its solid body count and
-    mass properties. A file holding an assembly is refused.
+    mass properties. A file holding an assembly is refused, and an import over
+    30 MB unless allow_large=True (it can outlast the 2-minute call limit).
     """
-    return await _call(_session.open_part, path)
+    return await _call(_session.open_part, path, allow_large)
 
 
 # --- assemblies ---------------------------------------------------------------
@@ -1084,14 +1090,15 @@ async def new_assembly() -> dict:
 
 
 @mcp.tool()
-async def open_assembly(path: str) -> dict:
+async def open_assembly(path: str, allow_large: bool = False) -> dict:
     """Open a .sldasm, or import a STEP/IGES/Parasolid assembly; it becomes the current document.
 
     An imported assembly's parts arrive as components at their places, ready
     for list_components and add_mate; the result gives the component count.
-    A file holding a single part is refused (use open_part).
+    A file holding a single part is refused (use open_part), and an import over
+    30 MB unless allow_large=True (it can outlast the 2-minute call limit).
     """
-    return await _call(_session.open_assembly, path)
+    return await _call(_session.open_assembly, path, allow_large)
 
 
 @mcp.tool()
@@ -1120,9 +1127,22 @@ async def list_components() -> dict:
     Positions are in mm and rotations in degrees, both in assembly coordinates;
     the bounding box of each component is in assembly coordinates too. Each
     mate gives its name, SolidWorks type, the dimension of a distance or angle
-    mate, and an error when SolidWorks flags it.
+    mate, and an error when SolidWorks flags it. A component that shows no
+    geometry carries a `problem` (see replace_component).
     """
     return await _call(_session.list_components)
+
+
+@mcp.tool()
+async def replace_component(name: str, path: str, reattach_mates: bool = True) -> dict:
+    """Put another part or assembly file in the place of a component of the current assembly.
+
+    Keeps its position and, with reattach_mates, its mates where they still
+    find their faces; `mate_errors` lists the ones that do not. Also the cure
+    for a component that vanished after its part was made anew under the same
+    path. Returns the new component (name, path, placement, bounding box).
+    """
+    return await _call(_session.replace_component, name, path, reattach_mates)
 
 
 @mcp.tool()

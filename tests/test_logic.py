@@ -581,6 +581,12 @@ def test_check_motion_needs_values_and_pairs(s, values, distances, message):
         s.check_motion("D1@Angle1", values, distances)
 
 
+@pytest.mark.parametrize("open_face", [["+z", "up"], [], ["+z", "#x"]])
+def test_a_shell_refuses_a_face_it_cannot_read_before_solidworks(s, open_face):
+    with pytest.raises(SolidWorksError, match="open_face"):
+        s.add_shell(2, open_face)
+
+
 def test_keep_inside_cuts_through_all(s):
     with pytest.raises(SolidWorksError, match="keep_inside cuts through all"):
         s.cut_profile_through_plane([[0, 0, 0], [0, 1, 0], [0, 0, 1]], "right", depth_mm=5, keep_inside=True)

@@ -51,6 +51,20 @@ def test_set_dimension_turns_an_angle_in_degrees(part):
     assert vol(half) == pytest.approx(full / 2, rel=1e-6)
 
 
+def test_set_dimension_names_the_features_it_breaks(part):
+    """Lengthening a window early in the tree broke a later Split ('error 1')
+    and every hole after it, while set_dimension only said 'applied'. A block
+    made narrower leaves its hole at x = 35 in the air: the cut fails."""
+    box = part.add_box(40, 20, 10)
+    part.add_hole(4, 35, 10)
+    narrower = part.set_dimension(box["dimensions"]["width"], 20)
+    assert narrower["applied"]
+    broken = [f["name"] for f in narrower["broken_features"]]
+    assert len(broken) == 1 and broken[0] != "BlockExtrude", f"the hole that lost its block was not named: {broken}"
+    back = part.set_dimension(box["dimensions"]["width"], 40)
+    assert back["broken_features"] == []
+
+
 def test_set_dimension(part):
     box = part.add_box(40, 20, 10)
     assert abs(vol(part.set_dimension(box["depth_dimension"], 25)) - 20000) < 0.01
@@ -643,6 +657,16 @@ def test_a_chamfer_at_another_angle_needs_the_face_it_leaves(part):
 def test_shell_open(part):
     part.add_box(40, 20, 10)
     assert abs(vol(part.add_shell(2, "+z")) - (8000 - 36 * 16 * 8)) < 0.1
+
+
+def test_a_shell_opens_several_faces_by_direction_or_index(part):
+    """A body whose openings were cut first got walls on every cut edge; a
+    shell opening the top and a side at once avoids that. Open at +z and
+    +x, the cavity runs out at both: 38 x 16 x 8."""
+    part.add_box(40, 20, 10)
+    [side] = [f["index"] for f in part.list_faces()["faces"] if f.get("normal") == pytest.approx([1, 0, 0])]
+    shell = part.add_shell(2, ["+z", f"#{side}"])
+    assert vol(shell) == pytest.approx(8000 - 38 * 16 * 8, abs=0.1), "the shell did not open both faces"
 
 
 def test_linear_pattern(part):
