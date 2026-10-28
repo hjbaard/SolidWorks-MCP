@@ -977,7 +977,12 @@ async def check_printability(up: str = "+z", overhang_deg: float = 45.0,
     Overhangs: downward faces leaning more than overhang_deg from vertical (90 =
     a flat ceiling) need support; the faces on the bed do not count. Gives the
     overhanging area per face (list_faces index) with its worst lean and centre,
-    the bed contact area and the print height. With min_wall_mm (e.g. two
+    the bed contact area and the print height. Islands: each place where the
+    print starts in the air, its height above the bed, centre and faces; a
+    downward edge between faces too steep to overhang still needs support
+    there. Unsupported edges: stretches of such an edge with air below, also
+    where the rest of it rests on material (the ends of a chamfered pad's edge
+    beside a tube), with length, height, centre and faces. With min_wall_mm (e.g. two
     nozzle widths) also the walls thinner than that, measured straight through
     the material from points spread over every face, with where each is thinnest.
     A spot right beside an edge where faces meet at a sharp angle reads as thin

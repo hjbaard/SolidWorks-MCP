@@ -3,6 +3,17 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- `check_printability` finds where a print starts in the air, also where
+  no face leans past the overhang limit. `islands`: a point, edge or patch
+  lower than all around it with nothing beneath (a V's point between
+  steep sides). `unsupported_edges`: stretches of an edge the material
+  rises from with air right below, such as the ends of a chamfered pad's
+  edge that rests on a tube only in the middle. Each comes with its
+  height above the bed, where it is and its faces.
+
 ## [0.16.3] — 2026-10-27
 
 ### Fixed

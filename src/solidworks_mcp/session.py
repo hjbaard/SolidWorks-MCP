@@ -5244,7 +5244,12 @@ class SolidWorksSession:
 
         Overhangs: downward faces leaning more than overhang_deg from vertical
         (90 = a flat ceiling) need support; faces resting on the bed do not
-        count. With min_wall_mm, also the walls thinner than that, measured
+        count. Islands: where the print starts in the air (a downward edge or
+        point with nothing beneath), even between faces too steep to overhang.
+        Unsupported edges: stretches of an edge the material rises from with
+        air right below, such as the ends of a chamfer's edge that only rests
+        on material in the middle.
+        With min_wall_mm, also the walls thinner than that, measured
         straight through the material from points spread over every face; a
         spot right beside a sharp edge reads as thin as the wedge there is.
         Faces are list_faces indexes, so a finding can be selected and fixed.
@@ -5258,7 +5263,9 @@ class SolidWorksSession:
         body = self._solid_body()
         triangles = [(index, *tri) for index, face in enumerate(self._body_faces(body))
                      for tri in self._face_triangles(binding.wrap(face, self._mod.IFace2))]
-        result = {"ok": True, "up": up, **self._overhangs(triangles, direction, overhang_deg)}
+        result = {"ok": True, "up": up, **self._overhangs(triangles, direction, overhang_deg),
+                  "islands": self._islands(triangles, direction),
+                  "unsupported_edges": self._unsupported_edges(body, triangles, direction, overhang_deg)}
         if min_wall_mm is not None:
             result["thin_walls"] = self._thin_walls(body, triangles, min_wall_mm)
         return result
@@ -5309,6 +5316,138 @@ class SolidWorksSession:
         return {"height_mm": round(max(heights) - bed, 4), "bed_contact_mm2": round(bed_area, 3),
                 "overhang": {"limit_deg": limit_deg, "area_mm2": round(sum(f["area_mm2"] for f in found), 3),
                              "faces": found}}
+
+    @staticmethod
+    def _islands(triangles, up) -> list:
+        """Where the print starts in the air: a point, edge or flat patch of
+        the surface lower than all around it, with material above it, not on
+        the bed. A slicer starts a new island there, with nothing beneath; the
+        faces beside it may lean too little to count as overhang. Pure,
+        unit-tested."""
+        def height(p):
+            return sum(c * u for c, u in zip(p, up))
+
+        def key(p):
+            return tuple(round(c, 3) for c in p)  # faces meshed apart share their edge points
+
+        points, neighbours, below, faces = {}, {}, {}, {}
+        for index, a, b, c, normal in triangles:
+            downward = sum(n * u for n, u in zip(normal, up)) < -1e-6
+            corners = [key(p) for p in (a, b, c)]
+            for k, corner in enumerate(corners):
+                points[corner] = height(corner)
+                neighbours.setdefault(corner, set()).update(corners[:k] + corners[k + 1:])
+                below[corner] = below.get(corner, False) or downward
+                faces.setdefault(corner, set()).update([index] if downward else [])  # the faces that hang there
+        bed, seen, found = min(points.values()), set(), []
+        for start in sorted(points, key=points.get):
+            level = points[start]
+            if start in seen or level - bed < 1e-3:
+                continue
+            patch, todo = {start}, [start]
+            while todo:  # the points around at the same height
+                for n in neighbours[todo.pop()]:
+                    if n not in patch and abs(points[n] - level) < 1e-3:
+                        patch.add(n)
+                        todo.append(n)
+            seen |= patch
+            lower = any(points[n] < level - 1e-3 for p in patch for n in neighbours[p])
+            if not lower and any(below[p] for p in patch):
+                found.append({"height_mm": round(level - bed, 3),
+                              "at_mm": [round(sum(p[i] for p in patch) / len(patch), 3) for i in range(3)],
+                              "faces": sorted(set().union(*(faces[p] for p in patch)))})
+        return found
+
+    @staticmethod
+    def _lower_edges(triangles, up, overhang_deg) -> list:
+        """The edges the material rises from, (a, b, faces): flatter than the
+        overhang limit, both faces beside them above them, and not both facing
+        up (that is a groove, with the material below). Such an edge must rest
+        on material along its length. Pure, unit-tested."""
+        def height(p):
+            return sum(c * u for c, u in zip(p, up))
+
+        def key(p):
+            return tuple(round(c, 3) for c in p)
+
+        sides = {}
+        for index, a, b, c, normal in triangles:
+            corners = [key(p) for p in (a, b, c)]
+            facing = sum(n * u for n, u in zip(normal, up))
+            for k in range(3):
+                edge = tuple(sorted((corners[k], corners[(k + 1) % 3])))
+                sides.setdefault(edge, []).append((corners[(k + 2) % 3], facing, index))
+        steepest = math.cos(math.radians(overhang_deg))
+        found = []
+        for (a, b), beside in sides.items():
+            length = math.dist(a, b)
+            if len(beside) != 2 or not length or abs(height(b) - height(a)) / length >= steepest:
+                continue
+            along = [(q - p) / length for p, q in zip(a, b)]
+
+            def above(point):  # higher than the edge right beside it
+                t = max(0.0, min(length, sum((c - p) * e for c, p, e in zip(point, a, along))))
+                return height(point) > height(a) + t / length * (height(b) - height(a)) + 1e-3
+
+            if all(above(third) for third, _, _ in beside) and min(f for _, f, _ in beside) < 1e-6:
+                found.append((a, b, sorted({index for _, _, index in beside})))
+        return found
+
+    _EDGE_PROBE_MM = 0.4      # how far below an edge its support must be: two layers
+    _EDGE_SAMPLE_MM = 0.5     # spacing of the probes along an edge
+    _EDGE_MIN_STRETCH_MM = 1.0  # shorter loose bits a slicer bridges: on curved parts they were noise
+
+    def _unsupported_edges(self, body, triangles, up, overhang_deg) -> list:
+        """Stretches of the lower edges with air right below them: probed just
+        under the edge, a ray that first leaves the material starts inside it."""
+        def height(p):
+            return sum(c * u for c, u in zip(p, up))
+
+        bed = min(height(p) for _, *corners, _ in triangles for p in corners)
+        probes = []
+        for a, b, faces in self._lower_edges(triangles, up, overhang_deg):
+            if min(height(a), height(b)) - bed < self._EDGE_PROBE_MM:
+                continue  # on the bed
+            count = max(1, math.ceil(math.dist(a, b) / self._EDGE_SAMPLE_MM))
+            for k in range(count):
+                point = [p + (k + 0.5) / count * (q - p) for p, q in zip(a, b)]
+                probes.append((point, math.dist(a, b) / count, faces))
+        if not probes:
+            return []
+        skew = [0.267, 0.535, 0.802]  # along no model axis, so no ray grazes a face
+        starts = [mm_to_m(c - self._EDGE_PROBE_MM * u) for point, _, _ in probes for c, u in zip(point, up)]
+        model = self._model
+        hits = model.RayIntersections(
+            win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_DISPATCH, [body._oleobj_]),
+            win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, starts),
+            win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, skew * len(probes)),
+            SW_RAY_NORMALS_ENTRY_EXIT, 0.0, 0.0)
+        points = model.GetRayIntersectionsPoints() if hits else ()
+        first = {}
+        for h in range(hits):
+            row = points[h * RAY_HIT_WIDTH:(h + 1) * RAY_HIT_WIDTH]
+            ray, distance = int(row[1]), math.dist(row[3:6], starts[3 * int(row[1]):3 * int(row[1]) + 3])
+            if distance < first.get(ray, (math.inf,))[0]:
+                first[ray] = (distance, bool(int(row[2]) & SW_RAY_HIT_EXIT))
+        loose = [probes[ray] for ray in range(len(probes)) if not first.get(ray, (0, False))[1]]
+        return self._stretches(loose, height, bed)
+
+    def _stretches(self, loose, height, bed) -> list:
+        """Unsupported probes joined into stretches where they touch, each with
+        its length, height above the bed, middle and faces; the short ones left out."""
+        groups = []
+        for point, length, faces in loose:
+            near = [g for g in groups if min(math.dist(point, p) for p, _, _ in g) <= 2 * self._EDGE_SAMPLE_MM]
+            merged = [(point, length, faces)] + [probe for g in near for probe in g]
+            groups = [g for g in groups if g not in near] + [merged]
+        found = []
+        for group in groups:
+            middle = [sum(p[i] for p, _, _ in group) / len(group) for i in range(3)]
+            found.append({"length_mm": round(sum(length for _, length, _ in group), 2),
+                          "height_mm": round(min(height(p) for p, _, _ in group) - bed, 3),
+                          "at_mm": [round(c, 3) for c in middle],
+                          "faces": sorted(set().union(*(faces for _, _, faces in group)))})
+        return sorted((s for s in found if s["length_mm"] >= self._EDGE_MIN_STRETCH_MM), key=lambda s: -s["length_mm"])
 
     @staticmethod
     def _triangle_samples(a, b, c, spacing) -> list:

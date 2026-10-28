@@ -701,6 +701,52 @@ def test_a_ceiling_overhangs_and_the_bed_does_not(s):
     assert s._overhangs(triangles, (0, 0, -1), 45)["overhang"]["faces"] == []
 
 
+def _hanging_wedge(material_above=True):
+    """A block on the bed (its underside z = 0) and, beside it, a wedge whose
+    sides lean 31 degrees from vertical down to a ridge at z = 3, x = 20: too
+    steep to overhang, yet the ridge starts in the air."""
+    flip = 1 if material_above else -1
+    left, right = math.hypot(5, 3), math.hypot(5, 3)
+    return (_quad(0, [(0, 0, 0), (10, 0, 0), (10, 10, 0), (0, 10, 0)], (0, 0, -1))
+            + _quad(1, [(20, 0, 3), (20, 10, 3), (17, 10, 8), (17, 0, 8)], (flip * -5 / left, 0, flip * -3 / left))
+            + _quad(2, [(20, 0, 3), (23, 0, 8), (23, 10, 8), (20, 10, 3)], (flip * 5 / right, 0, flip * -3 / right))
+            + _quad(3, [(17, 0, 8), (17, 10, 8), (23, 10, 8), (23, 0, 8)], (0, 0, flip)))
+
+
+def test_an_edge_starting_in_the_air_is_an_island(s):
+    """A chamfered block's lower edge began 1 to 4.5 mm beside a tube, in the
+    air: no face leaned past 45 degrees, so the check passed it, and the
+    slicer showed it hanging."""
+    triangles = _hanging_wedge()
+    assert s._overhangs(triangles, (0, 0, 1), 45)["overhang"]["faces"] == []
+    [island] = s._islands(triangles, (0, 0, 1))
+    assert island["height_mm"] == pytest.approx(3), f"the ridge was not found starting in the air: {island}"
+    assert island["at_mm"] == pytest.approx([20, 5, 3]) and island["faces"] == [1, 2]
+
+
+def test_a_groove_and_the_bed_are_no_islands(s):
+    # the same shape with the material below the ridge is the floor of a groove
+    assert s._islands(_hanging_wedge(material_above=False), (0, 0, 1)) == []
+    # turned over, the wedge's top rests on the bed and its ridge points up
+    assert s._islands(_hanging_wedge(), (0, 0, -1)) == []
+
+
+def test_a_hanging_ridge_is_a_lower_edge(s):
+    """The edges the material starts from, which must rest on something: the
+    ridge between two faces rising from it, with the material above."""
+    [(a, b, faces)] = s._lower_edges(_hanging_wedge(), (0, 0, 1), 45)
+    assert sorted([a, b]) == [(20, 0, 3), (20, 10, 3)] and faces == [1, 2]
+
+
+def test_a_groove_a_flat_ceiling_and_the_bed_have_no_lower_edges(s):
+    """A groove holds material below; a flat ceiling is overhang already, and
+    its own edges have the ceiling beside them, not above."""
+    assert s._lower_edges(_hanging_wedge(material_above=False), (0, 0, 1), 45) == []
+    ceiling = (_quad(0, [(0, 0, 0), (10, 0, 0), (10, 10, 0), (0, 10, 0)], (0, 0, -1))
+               + _quad(1, [(10, 0, 5), (14, 0, 5), (14, 10, 5), (10, 10, 5)], (0, 0, -1)))
+    assert s._lower_edges(ceiling, (0, 0, 1), 45) == []
+
+
 @pytest.mark.parametrize("arguments,message", [({"up": "up"}, "Unknown direction"),
                                                ({"overhang_deg": 90}, "between 0 and 90"),
                                                ({"min_wall_mm": 0}, "min_wall_mm must be > 0")])
