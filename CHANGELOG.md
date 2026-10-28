@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.17.0] — 2026-10-28
 
 ### Added
 - `check_printability` finds where a print starts in the air, also where
