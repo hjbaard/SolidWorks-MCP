@@ -95,7 +95,10 @@ is in [`src/solidworks_mcp/guide.md`](https://github.com/hjbaard/SolidWorks-MCP/
 - Python 3.11+ (uv fetches one if needed).
 - A **Y-up part template**, SolidWorks' standard. Since SOLIDWORKS 2025 new
   parts can also be Z-up; the tools build in the Y-up frame and refuse a Z-up
-  part with a message that says so.
+  part with a message that says so. Choosing Y-up in the New Document dialog
+  is not used for parts made through the API: make a Y-up part, save it as a
+  `.prtdot`, and set that file as the part template under Tools > Options >
+  System Options > Default Templates.
 - **Tested on SOLIDWORKS 2026** (3DEXPERIENCE R2026x). The API calls it uses
   exist since SOLIDWORKS 2020 SP2, so 2020–2025 should work, but that is
   **untested**. To check your installation, run this with SolidWorks open:

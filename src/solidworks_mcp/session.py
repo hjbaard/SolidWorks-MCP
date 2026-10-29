@@ -511,9 +511,11 @@ class SolidWorksSession:
         if any(self._lies_along(data, self._Z_UP_FRONT_AXES) for data in transforms):
             raise SolidWorksError("This part comes from a Z-up part template (an option since SolidWorks 2025): "
                                   "its Front, Top and Right planes are turned, and the tools build in SolidWorks' "
-                                  "standard Y-up frame. Make new parts Y-up: choose Y-up where SolidWorks offers "
-                                  "the orientation for new documents, or a Y-up part template under Tools > "
-                                  "Options > System Options > Default Templates.")
+                                  "standard Y-up frame. Make new parts Y-up: make a part with Y-up chosen in the "
+                                  "New Document dialog, save it as a part template (.prtdot), and set that file "
+                                  "as the part template under Tools > Options > System Options > Default "
+                                  "Templates. Choosing Y-up in the dialog alone is not used for parts made "
+                                  "through the API.")
         raise SolidWorksError(f"The part has no {key} plane: none of {', '.join(f.Name for f in planes)} lies "
                               f"through the origin facing {axes[2]}. Is its template unusual?")
 

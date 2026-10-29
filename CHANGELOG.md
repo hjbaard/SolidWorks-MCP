@@ -3,6 +3,14 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- The Z-up template message and the README say how to get Y-up parts:
+  choosing Y-up in the New Document dialog is not used for parts made
+  through the API, so save a Y-up part as a part template and set that
+  file as the default part template.
+
 ## [0.17.0] — 2026-10-28
 
 ### Added
