@@ -16,6 +16,11 @@ All notable changes to this project are documented here. This project follows
   they meet, stop and say so when an operation is missing or refused, and
   measure what a hand calculation cannot judge.
 
+### Added
+- `loft_sketches(sketches)` lofts through closed sketches on any planes,
+  in order (add_plane, then add_sketch on it, or a person's sketches), so a
+  loft can run in any direction; add_lofted_solid stacks only along +Z.
+
 ### Fixed
 - `slice_mesh` failed with "No running SolidWorks found" while SolidWorks
   was gone, though it only reads an STL or 3MF. It now runs without

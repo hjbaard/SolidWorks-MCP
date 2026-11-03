@@ -285,6 +285,19 @@ async def add_lofted_solid(profiles_mm: list, heights_mm: list, name: str = "Lof
 
 
 @mcp.tool()
+async def loft_sketches(sketches: list, name: str = "Loft") -> dict:
+    """Loft through 2+ closed sketches of the current part, by name, in order.
+
+    The sketches may lie on any planes (add_plane, then add_sketch on it, or a
+    person's sketches), so the loft runs in any direction, unlike
+    add_lofted_solid's stack along +Z. Start each sketch at the matching
+    corner (its first segment's start) to keep the loft from twisting. Returns
+    mass properties.
+    """
+    return await _call(_session.loft_sketches, sketches, name)
+
+
+@mcp.tool()
 async def cut_profile_through_plane(points_mm: list, plane: str, depth_mm: float | None = None,
                                     name: str = "Cut", corner_radii_mm: float | list | None = None,
                                     keep_inside: bool = False) -> dict:

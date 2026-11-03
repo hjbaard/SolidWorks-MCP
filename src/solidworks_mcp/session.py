@@ -1922,6 +1922,55 @@ class SolidWorksSession:
         model.ClearSelection2(True)
         return self._finish_feature(loft, name, dimensions=dimensions, fully_defined=fully_defined)
 
+    def loft_sketches(self, sketches: list, name: str = "Loft") -> dict:
+        """Loft through 2+ closed sketches of the part, by name, in order: on
+        any planes (add_plane, add_sketch), so a loft runs in any direction.
+        Each sketch is picked at its first segment's start (a circle on its
+        sketch x axis): start the sketches at matching corners to keep the
+        loft from twisting. Their dimensions come back. Returns mass properties."""
+        if len(sketches) < 2:
+            raise SolidWorksError("A loft needs at least 2 sketches.")
+        model = self._require_model()
+        self._require_part()
+        picks = [(sketch, self._loft_pick_point(sketch)) for sketch in sketches]
+        model.ClearSelection2(True)
+        ext = binding.wrap(model.Extension, self._mod.IModelDocExtension)
+        for sketch, (x, y, z) in picks:
+            if not ext.SelectByID2(sketch, "SKETCH", mm_to_m(x), mm_to_m(y), mm_to_m(z), True, 1, None, 0):
+                raise SolidWorksError(f"Could not select the sketch '{sketch}'.")
+        feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
+        loft = feat_mgr.InsertProtrusionBlend(False, False, False, 1.0, 0, 0, 0.0, 0.0, False, False,
+                                              False, 0.0, 0.0, 0, True, True, True)
+        model.ClearSelection2(True)
+        if loft is None:
+            raise SolidWorksError(f"SolidWorks could not loft through {', '.join(sketches)}: is each sketch one "
+                                  "closed outline, and do they lie apart from each other?")
+        dimensions = {f"{d['name']}": d["name"] for s in sketches for d in self._dimension_entries(self._sketch_by_name(s))}
+        return self._finish_feature(loft, name, dimensions=dimensions)
+
+    def _loft_pick_point(self, name: str) -> list:
+        """Where a loft picks the sketch `name`, in model mm: the start of its
+        first segment, or a circle's point on the sketch's x axis."""
+        sketch = binding.wrap(self._sketch_by_name(name).GetSpecificFeature2(), self._mod.ISketch)
+        to_model = binding.wrap(binding.wrap(sketch.ModelToSketchTransform, self._mod.IMathTransform).Inverse(),
+                                self._mod.IMathTransform)
+        for dispatch in sketch.GetSketchSegments() or ():
+            segment = binding.wrap(dispatch, self._mod.ISketchSegment)
+            if segment.ConstructionGeometry:
+                continue
+            if segment.GetType() == SW_SKETCH_LINE:
+                start = binding.wrap(binding.wrap(dispatch, self._mod.ISketchLine).GetStartPoint2(), self._mod.ISketchPoint)
+                return self._to_model_mm(to_model, start.X, start.Y, start.Z)
+            if segment.GetType() == SW_SKETCH_ARC:
+                arc = binding.wrap(dispatch, self._mod.ISketchArc)
+                if arc.IsCircle():
+                    centre = binding.wrap(arc.GetCenterPoint2(), self._mod.ISketchPoint)
+                    return self._to_model_mm(to_model, centre.X + arc.GetRadius(), centre.Y, centre.Z)
+                start = binding.wrap(arc.GetStartPoint2(), self._mod.ISketchPoint)
+                return self._to_model_mm(to_model, start.X, start.Y, start.Z)
+            break
+        raise SolidWorksError(f"The sketch '{name}' starts with no line or arc to loft from.")
+
     @staticmethod
     def _rib_material_reversed(start, end, toward) -> bool:
         """Whether InsertRib must reverse its material side to grow toward `toward`.

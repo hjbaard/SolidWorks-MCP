@@ -30,6 +30,30 @@ def segment_area(radius, chord):
     return radius ** 2 * math.acos(d / radius) - d * chord / 2
 
 
+def _square(half):
+    return [{"line": [half, -half]}, {"line": [half, half]}, {"line": [-half, half]}, {"line": [-half, -half]}]
+
+
+def test_sketches_on_any_planes_loft_into_one_solid(part):
+    """add_lofted_solid lofts only along +Z from the Front plane; a head that
+    narrows towards the side needed a loft along x. A 20 mm square on the
+    Right plane lofted to a 10 mm square 30 mm along x is a frustum:
+    h / 3 (A1 + A2 + sqrt(A1 A2)) = 10 (400 + 100 + 200) = 7000 mm^3."""
+    wide = part.add_sketch("right", [-10, -10], _square(10))["sketch"]
+    side = part.add_plane("right", offset_mm=30, name="Cheek")
+    narrow = part.add_sketch(side["plane"], [-5, -5], _square(5))["sketch"]
+    loft = part.loft_sketches([wide, narrow])
+    assert vol(loft) == pytest.approx(7000, rel=1e-6), "the loft between the two squares is not the frustum"
+    box = loft["mass_properties"]["bounding_box_mm"]
+    assert box["min_mm"][0] == pytest.approx(0) and box["max_mm"][0] == pytest.approx(30)
+
+
+def test_a_loft_needs_two_sketches(part):
+    sketch = part.add_sketch("front", [-10, -10], _square(10))["sketch"]
+    with pytest.raises(SolidWorksError, match="at least 2"):
+        part.loft_sketches([sketch])
+
+
 def test_a_stadium_is_two_dimensions_and_stays_a_stadium(part):
     """Tangent arcs make half circles on a 40 x 20 rectangle; a taller stadium
     keeps half circles, because the tangents hold, not the coordinates."""
