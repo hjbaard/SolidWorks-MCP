@@ -3,6 +3,13 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- The guide shows how to make features follow each other: tie a hole to
+  its block with an equation, so it stays centred or a fixed distance from
+  an edge when the block grows.
+
 ## [0.18.0] — 2026-11-03
 
 ### Changed

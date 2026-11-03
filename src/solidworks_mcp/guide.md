@@ -104,6 +104,14 @@ stray drag in SolidWorks can change the part.
   equation-driven dimension refuses `set_dimension` and names its equation. An
   angle (a revolve's, an angle mate's) is set in degrees; `list_dimensions`
   shows each dimension's unit.
+- **Make features follow each other.** Every sketch is dimensioned from the
+  origin, so a hole stays where it was when its block grows. Tie it to the
+  block with an equation: a hole centred on a 40 mm box,
+  `set_equation('"x@Sketch2" = "width@Sketch1" / 2')`; one 5 mm in from the
+  right edge, `set_equation('"x@Sketch2" = "width@Sketch1" - 5')`. Do this
+  where the design means it (a hole that must stay centred, a slot at a
+  fixed distance from an edge), so the part keeps working when a person
+  changes its sizes.
 
 ## 4. Recipes
 
