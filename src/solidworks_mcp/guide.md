@@ -108,7 +108,9 @@ stray drag in SolidWorks can change the part.
   origin, so a hole stays where it was when its block grows. Tie it to the
   block with an equation: a hole centred on a 40 mm box,
   `set_equation('"x@Sketch2" = "width@Sketch1" / 2')`; one 5 mm in from the
-  right edge, `set_equation('"x@Sketch2" = "width@Sketch1" - 5')`. Do this
+  right edge, `set_equation('"x@Sketch2" = "width@Sketch1" - 5')`. Or
+  measure a hole or boss from its face's edges when you make it:
+  `add_hole_on_face(..., from_edges=True)`. Do this
   where the design means it (a hole that must stay centred, a slot at a
   fixed distance from an edge), so the part keeps working when a person
   changes its sizes.
