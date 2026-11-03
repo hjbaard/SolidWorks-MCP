@@ -10,6 +10,16 @@ All notable changes to this project are documented here. This project follows
   choosing Y-up in the New Document dialog is not used for parts made
   through the API, so save a Y-up part as a part template and set that
   file as the default part template.
+- The connect-time instructions gain a "Design intent" section: plan the
+  feature tree first, change a shape where it is made instead of stacking
+  bodies and cuts at the end of the tree, extrude details up to the surface
+  they meet, stop and say so when an operation is missing or refused, and
+  measure what a hand calculation cannot judge.
+
+### Fixed
+- `slice_mesh` failed with "No running SolidWorks found" while SolidWorks
+  was gone, though it only reads an STL or 3MF. It now runs without
+  SolidWorks.
 
 ## [0.17.0] — 2026-10-28
 

@@ -157,3 +157,22 @@ def test_session_slices_a_mesh_without_solidworks(tmp_path):
     assert first["loops"][0]["area_mm2"] == pytest.approx(800)
     assert first["loops"][0]["point_count"] == 4 and len(first["loops"][0]["points_mm"]) == 4
     assert empty["loops"] == []
+
+
+def test_the_slice_mesh_tool_works_while_solidworks_is_gone(tmp_path, monkeypatch):
+    """SolidWorks dropped its link three times; slice_mesh then said 'No running
+    SolidWorks found', though it only reads an STL."""
+    import asyncio
+
+    from solidworks_mcp import server
+
+    class GoneSolidWorks:
+        async def call(self, fn):
+            raise SolidWorksError("No running SolidWorks found.")
+
+    monkeypatch.setattr(server, "_worker", GoneSolidWorks())
+    path = tmp_path / "box.stl"
+    _write_binary_stl(path, BOX)
+    result = asyncio.run(server.slice_mesh(str(path), "z", [5.0]))
+    assert result.get("ok", True) is not False, f"slicing a mesh needed SolidWorks: {result}"
+    assert result["sections"][0]["loops"][0]["area_mm2"] == pytest.approx(800)

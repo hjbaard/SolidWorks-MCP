@@ -642,7 +642,8 @@ def _tool_delegations():
         if not isinstance(node, ast.AsyncFunctionDef) or not node.decorator_list:
             continue
         call = next(n for n in ast.walk(node)
-                    if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "_call")
+                    if isinstance(n, ast.Call)
+                    and getattr(n.func, "id", None) in ("_call", "_call_without_solidworks"))
         target, *passed = call.args
         yield (node.name,
                [a.arg for a in node.args.args],

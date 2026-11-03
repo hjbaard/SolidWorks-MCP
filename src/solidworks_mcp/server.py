@@ -7,6 +7,7 @@ rather than getting an opaque stack trace.
 """
 
 import argparse
+import asyncio
 import sys
 from importlib import resources
 
@@ -29,8 +30,14 @@ Conventions
 - Flowing outlines (an S-bend, a hub running into a beam): add_sketch with lines, tangent arcs and splines, then extrude_sketch / cut_sketch.
 - A joint: concentric mate (cylinders by list_faces index, '#5') + coincident + angle mate; the angle mate's dimension turns it (set_dimension, check_motion).
 
+Design intent
+- Plan the feature tree before the first call and show it to the user: base sketch, main shape (extrude, revolve or loft), shell, openings, bosses and details, fillets last (fillets that shape the body before the shell).
+- To change a shape, change what makes it: set_dimension, set_equation, or the sketch (read_sketch). Do not stack bodies and cuts at the end of the tree to imitate a new shape: every call succeeds, and the part ends up with slivers, slots and fins. Rebuild the part when its source cannot change safely.
+- Details that must meet a surface (bosses, ribs, walls) extrude up to it (extrude_sketch up_to='next'), not a fixed depth, so they follow later changes.
+- When an operation is missing or refused (a reorder that will not move), stop and tell the user; do not approximate it with other tools.
+
 Work in small verified steps
-- Every modelling call returns volume, mass and bounding box: check them against your own hand calculation after each step, and fix the first mismatch before adding more.
+- Every modelling call returns volume, mass and bounding box: check them against your own hand calculation after each step, and fix the first mismatch before adding more. Where a hand calculation cannot judge the shape, measure it: slice_mesh on an export, check_printability, check_interference, a screenshot.
 - Look before selecting by index: list_faces / list_edges; screenshot to see the shape.
 - Undo a wrong step with delete_feature; list_features shows the history, also of a part opened from disk.
 - {ok: false, error} means the tool refused or SolidWorks failed; the error names the cause, and the part is left as it was.
@@ -93,16 +100,30 @@ async def _call(fn, *args, **kwargs) -> dict:
         if _worker is None:
             return fn(*args, **kwargs)
         return await _worker.call(lambda: _session.run_guarded(fn, *args, **kwargs))
-    except SolidWorksError as exc:
+    except Exception as exc:  # noqa: BLE001 - never leak a stack trace to the agent
+        return _failure(exc)
+
+
+async def _call_without_solidworks(fn, *args) -> dict:
+    """Run a session method that only reads files, off the COM thread and
+    without attaching to SolidWorks: it works while SolidWorks is gone."""
+    try:
+        return await asyncio.to_thread(fn, *args)
+    except Exception as exc:  # noqa: BLE001 - never leak a stack trace to the agent
+        return _failure(exc)
+
+
+def _failure(exc) -> dict:
+    """A failed call as the result dict the agent reads."""
+    if isinstance(exc, SolidWorksError):
         return {"ok": False, "error": str(exc)}
-    except _COM_ERROR as exc:
+    if isinstance(exc, _COM_ERROR):
         # Extract the human-readable description if SolidWorks supplied one;
         # raw HRESULT tuples are useless as a correction-loop signal.
         info = getattr(exc, "excepinfo", None)
         desc = info[2] if info and len(info) > 2 and info[2] else getattr(exc, "strerror", None)
         return {"ok": False, "error": f"SolidWorks COM error: {desc or exc}"}
-    except Exception as exc:  # noqa: BLE001 - never leak a stack trace to the agent
-        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
 @mcp.tool()
@@ -718,9 +739,9 @@ async def slice_mesh(path: str, axis: str, heights_mm: list, frame: str = "objec
     For modelling a part that must fit something that only exists as a mesh.
     Returns each section's closed loops, largest first, as polygon points (mm)
     ready to use as profiles. frame (3MF): 'object' (the mesh's own frame) or
-    'build' (as placed on the slicer's plate).
+    'build' (as placed on the slicer's plate). Needs no SolidWorks.
     """
-    return await _call(_session.slice_mesh, path, axis, heights_mm, frame)
+    return await _call_without_solidworks(_session.slice_mesh, path, axis, heights_mm, frame)
 
 
 @mcp.tool()
