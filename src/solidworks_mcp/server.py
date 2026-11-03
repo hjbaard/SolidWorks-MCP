@@ -438,15 +438,18 @@ async def add_counterbore_hole(clearance_diameter_mm: float, cbore_diameter_mm: 
 
 @mcp.tool()
 async def add_hole_on_face(diameter_mm: float, face: str, x_mm: float, y_mm: float, z_mm: float,
-                           depth_mm: float | None = None, name: str = "Hole") -> dict:
+                           depth_mm: float | None = None, name: str = "Hole", from_edges: bool = False) -> dict:
     """Drill a round hole on ANY planar face, centred at 3D point (x, y, z) mm.
 
     face is "+x"/"-x"/"+y"/"-y"/"+z"/"-z": the face facing that way through the
     point is drilled, so a pocket floor or a step works too. Through all, or
     depth_mm deep (blind: heat-set inserts, screw pilots). Returns mass
-    properties and `dimensions` (diameter, x, y, depth).
+    properties and `dimensions` (diameter, x, y, depth). from_edges=True
+    measures x and y from the face's nearest straight edges instead of the
+    origin, so the hole keeps its distance to them when the part changes
+    (`measured_from` names the edges): use it where the design means it.
     """
-    return await _call(_session.add_hole_on_face, diameter_mm, face, x_mm, y_mm, z_mm, depth_mm, name)
+    return await _call(_session.add_hole_on_face, diameter_mm, face, x_mm, y_mm, z_mm, depth_mm, name, from_edges)
 
 
 @mcp.tool()
@@ -468,13 +471,15 @@ async def add_hole_wizard(kind: str, size: str, face: str, x_mm: float, y_mm: fl
 
 @mcp.tool()
 async def add_boss_on_face(diameter_mm: float, face: str, x_mm: float, y_mm: float, z_mm: float,
-                           height_mm: float, name: str = "Boss") -> dict:
+                           height_mm: float, name: str = "Boss", from_edges: bool = False) -> dict:
     """Grow a round boss (standoff, peg) height_mm out of ANY planar face, centred at (x, y, z) mm.
 
     The face is found as for add_hole_on_face. For a PCB standoff, add a blind
-    hole in its top. Returns mass properties and `dimensions`.
+    hole in its top. from_edges works as for add_hole_on_face. Returns mass
+    properties and `dimensions`.
     """
-    return await _call(_session.add_boss_on_face, diameter_mm, face, x_mm, y_mm, z_mm, height_mm, name)
+    return await _call(_session.add_boss_on_face, diameter_mm, face, x_mm, y_mm, z_mm, height_mm, name,
+                       from_edges)
 
 
 @mcp.tool()

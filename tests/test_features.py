@@ -51,6 +51,39 @@ def test_set_dimension_turns_an_angle_in_degrees(part):
     assert vol(half) == pytest.approx(full / 2, rel=1e-6)
 
 
+def hole_centre(part):
+    [point] = [f["cylinder"]["point_mm"] for f in part.list_faces()["faces"] if "cylinder" in f]
+    return point
+
+
+def test_a_hole_measured_from_the_edges_follows_its_block(part):
+    """Dimensioned from the origin, a hole stays where it was when its block
+    grows. from_edges dimensions it from the face's nearest edges, as a person
+    would: 10 mm in from the right edge, 5 from the front, and there it stays."""
+    box = part.add_box(40, 20, 10)
+    hole = part.add_hole_on_face(4, "+z", 30, 5, 10, from_edges=True)
+    assert hole["fully_defined"] is True
+    sizes = {d["name"]: d["value"] for d in part.list_dimensions(contains=hole["dimensions"]["x"].split("@")[1])["dimensions"]}
+    assert sizes[hole["dimensions"]["x"]] == pytest.approx(10) and sizes[hole["dimensions"]["y"]] == pytest.approx(5)
+    assert hole["measured_from"]["x"]["edge_mm"][0][0] == pytest.approx(40)
+    part.set_dimension(box["dimensions"]["width"], 60)
+    assert hole_centre(part) == pytest.approx([50, 5, 5], abs=1e-3), "the hole did not stay 10 mm from the right edge"
+
+
+def test_a_boss_measured_from_the_edges_follows_its_block(part):
+    box = part.add_box(40, 20, 10)
+    part.add_boss_on_face(6, "+z", 8, 15, 10, 4, from_edges=True)
+    part.set_dimension(box["dimensions"]["height"], 30)
+    centres = [f["cylinder"]["point_mm"] for f in part.list_faces()["faces"] if "cylinder" in f]
+    assert centres[0][:2] == pytest.approx([8, 25], abs=1e-3), "the boss did not stay 5 mm from the back edge"
+
+
+def test_from_edges_needs_straight_edges_on_the_face(part):
+    part.add_disc(40, 10)
+    with pytest.raises(SolidWorksError, match="straight edge"):
+        part.add_hole_on_face(4, "+z", 5, 5, 10, from_edges=True)
+
+
 def test_set_dimension_names_the_features_it_breaks(part):
     """Lengthening a window early in the tree broke a later Split ('error 1')
     and every hole after it, while set_dimension only said 'applied'. A block

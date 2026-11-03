@@ -10,6 +10,13 @@ All notable changes to this project are documented here. This project follows
   its block with an equation, so it stays centred or a fixed distance from
   an edge when the block grows.
 
+### Added
+- `add_hole_on_face(..., from_edges=True)` and `add_boss_on_face(...,
+  from_edges=True)` dimension the centre from the face's nearest straight
+  edges instead of the origin, so the hole or boss keeps its distance to
+  them when the part changes, as a person would draw it. `measured_from`
+  names the edges.
+
 ## [0.18.0] — 2026-11-03
 
 ### Changed

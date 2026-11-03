@@ -372,10 +372,15 @@ class SketchDefiner:
         if self._relations.AddRelation(_entities(*entities), kind) is None:
             raise SolidWorksError(f"SolidWorks refused a {label} relation while defining the sketch.")
 
-    def _dimension(self, add, point, role: str, value_mm=None) -> str:
-        """Dimension a point from the origin; with value_mm, drive it to that value."""
-        if not (point.Select4(False, None) and self._origin.Select4(True, None)):
-            raise SolidWorksError(f"Could not select a sketch point and the origin for dimension '{role}'.")
+    def dimension_to(self, add, point, entity, role: str) -> str:
+        """Dimension a point from a model entity (an edge of the sketch's face)
+        instead of the origin, with add (AddHorizontalDimension2 / AddVerticalDimension2)."""
+        return self._dimension(add, point, role, to=entity)
+
+    def _dimension(self, add, point, role: str, value_mm=None, to=None) -> str:
+        """Dimension a point from the origin, or from `to`; with value_mm, drive it to that value."""
+        if not (point.Select4(False, None) and (to or self._origin).Select4(True, None)):
+            raise SolidWorksError(f"Could not select a sketch point and what to measure it from for dimension '{role}'.")
         display = add(point.X + _TEXT_OFFSET_M, point.Y + _TEXT_OFFSET_M, 0.0)
         if display is None:
             raise SolidWorksError(f"SolidWorks refused the dimension '{role}'.")

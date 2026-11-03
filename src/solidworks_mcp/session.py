@@ -2515,24 +2515,72 @@ class SolidWorksSession:
     def _open_sketch_on_face(self, face: str, point_mm):
         """Select the face -- the one through point_mm unless the selector names a
         side -- and open a sketch on it. Returns (sketch manager, open sketch)."""
+        sk, sketch, _ = self._open_sketch_on_face_of(face, point_mm)
+        return sk, sketch
+
+    def _open_sketch_on_face_of(self, face: str, point_mm):
+        """As _open_sketch_on_face, and the face itself: (sketch manager, sketch, face)."""
         body = self._solid_body()
         normal, side = self._parse_face_selector(face, default_side=None)
-        self._select_face_through(body, normal, side, point_mm, face)
+        picked = self._select_face_through(body, normal, side, point_mm, face)
         sk = binding.wrap(self._model.SketchManager, self._mod.ISketchManager)
-        return sk, self._open_face_sketch(sk, face)
+        return sk, self._open_face_sketch(sk, face), picked
 
-    def _sketch_circle_on_face(self, face: str, diameter_mm: float, x_mm: float, y_mm: float, z_mm: float) -> dict:
-        """A fully defined circle on the face through (x, y, z); the sketch is closed again."""
-        sk, sketch = self._open_sketch_on_face(face, (x_mm, y_mm, z_mm))
+    def _sketch_circle_on_face(self, face: str, diameter_mm: float, x_mm: float, y_mm: float, z_mm: float,
+                               from_edges: bool = False) -> dict:
+        """A fully defined circle on the face through (x, y, z); the sketch is
+        closed again. from_edges dimensions its centre from the face's nearest
+        straight edges instead of the origin, so it follows them."""
+        before = {f.Name for f in self._history()}
+        sk, sketch, picked = self._open_sketch_on_face_of(face, (x_mm, y_mm, z_mm))
         try:
-            u, v = self._model_to_sketch_uv(sketch, mm_to_m(x_mm), mm_to_m(y_mm),
-                                            mm_to_m(z_mm), face)
-            circle = self._draw_circle(sk, u, v, mm_to_m(diameter_mm / 2.0))
-            # x/y are the face sketch's own horizontal/vertical directions
-            return self._define_sketch(sk, circles=[circle], names={("x", 0): "x", ("y", 0): "y"})
-        finally:
-            self._model.ClearSelection2(True)
-            sk.InsertSketch(True)  # close the sketch, also when the point is rejected
+            try:
+                u, v = self._model_to_sketch_uv(sketch, mm_to_m(x_mm), mm_to_m(y_mm),
+                                                mm_to_m(z_mm), face)
+                circle = self._draw_circle(sk, u, v, mm_to_m(diameter_mm / 2.0))
+                if not from_edges:
+                    # x/y are the face sketch's own horizontal/vertical directions
+                    return self._define_sketch(sk, circles=[circle], names={("x", 0): "x", ("y", 0): "y"})
+                return self._define_from_edges(sk, sketch, circle, picked, face)
+            finally:
+                self._model.ClearSelection2(True)
+                sk.InsertSketch(True)  # close the sketch, also when the point is rejected
+        except SolidWorksError:
+            if from_edges:
+                self._remove_features_since(before)  # a refused from_edges leaves no sketch behind
+            raise
+
+    def _define_from_edges(self, sk, sketch, circle, face_dispatch, label: str) -> dict:
+        """Define a circle by its diameter and its centre's distances to the
+        nearest straight edge of the face along each sketch axis."""
+        _, definer = self._open_sketch_definer(sk)
+        arc = binding.wrap(circle, self._mod.ISketchArc)
+        centre = binding.wrap(arc.GetCenterPoint2(), self._mod.ISketchPoint)
+        nearest = {}  # axis -> (distance, edge, its end points in model mm)
+        for dispatch in binding.wrap(face_dispatch, self._mod.IFace2).GetEdges() or ():
+            edge = binding.wrap(dispatch, self._mod.IEdge)
+            curve = binding.wrap(edge.GetCurve(), self._mod.ICurve)
+            if curve is None or not curve.IsLine():
+                continue
+            ends = [binding.wrap(v, self._mod.IVertex).GetPoint() for v in (edge.GetStartVertex(), edge.GetEndVertex())]
+            (u1, v1, _), (u2, v2, _) = (self._sketch_coords(sketch, *p) for p in ends)
+            # an edge along the sketch's v axis fixes x (u), one along u fixes y (v)
+            for axis, across, along, place in (("x", abs(u2 - u1), abs(v2 - v1), u1), ("y", abs(v2 - v1), abs(u2 - u1), v1)):
+                if across < 1e-9 < along:
+                    distance = abs(place - (centre.X if axis == "x" else centre.Y))
+                    if distance < nearest.get(axis, (float("inf"),))[0]:
+                        nearest[axis] = (distance, dispatch, [[round(m_to_mm(c), 4) for c in p] for p in ends])
+        missing = [axis for axis in ("x", "y") if axis not in nearest]
+        if missing:
+            raise SolidWorksError(f"from_edges needs a straight edge on the {label} face along each sketch axis; "
+                                  f"there is none to measure {' and '.join(missing)} from. Leave from_edges out "
+                                  "to dimension from the origin.")
+        dims = {"diameter": definer._diameter(arc, "diameter")}
+        for axis, add in (("x", self._model.AddHorizontalDimension2), ("y", self._model.AddVerticalDimension2)):
+            entity = binding.wrap(nearest[axis][1], self._mod.IEntity)
+            dims[axis] = definer.dimension_to(add, centre, entity, axis)
+        return {"dimensions": dims, "fully_defined": definer.fully_defined(),
+                "measured_from": {axis: {"edge_mm": nearest[axis][2]} for axis in ("x", "y")}}
 
     def _sketch_polygon_on_face(self, face: str, points_mm, corner_radii_mm=None) -> dict:
         """A fully defined polygon through 3D points on the face, its corners
@@ -2552,7 +2600,7 @@ class SolidWorksSession:
             sk.InsertSketch(True)  # close the sketch, also when a point is rejected
 
     def add_hole_on_face(self, diameter_mm: float, face: str, x_mm: float, y_mm: float, z_mm: float,
-                         depth_mm: float | None = None, name: str = "Hole") -> dict:
+                         depth_mm: float | None = None, name: str = "Hole", from_edges: bool = False) -> dict:
         """Drill a round hole on any planar face, centred at 3D point (x, y, z).
 
         face is a direction '+x'/'-x'/'+y'/'-y'/'+z'/'-z'; the planar face facing
@@ -2560,14 +2608,16 @@ class SolidWorksSession:
         (':outer'/':inner' force the outermost/innermost face). The hole runs
         through all material along the face normal, or depth_mm deep: a blind
         hole for a heat-set insert or a screw pilot. (add_hole is the +Z 2D
-        convenience version of this.)
+        convenience version of this.) from_edges=True dimensions the centre
+        from the face's nearest straight edges, not the origin, so the hole
+        keeps its distance to them when the part changes (`measured_from`).
         """
         model = self._require_model()
         if diameter_mm <= 0:
             raise SolidWorksError(f"diameter must be > 0 (got {diameter_mm}).")
         if depth_mm is not None and depth_mm <= 0:
             raise SolidWorksError(f"depth must be > 0 (got {depth_mm}).")
-        defined = self._sketch_circle_on_face(face, diameter_mm, x_mm, y_mm, z_mm)
+        defined = self._sketch_circle_on_face(face, diameter_mm, x_mm, y_mm, z_mm, from_edges)
 
         t1, d1 = (SW_END_COND_THROUGH_ALL, 0.0) if depth_mm is None else (SW_END_COND_BLIND, mm_to_m(depth_mm))
         feat_mgr = binding.wrap(model.FeatureManager, self._mod.IFeatureManager)
@@ -2584,17 +2634,17 @@ class SolidWorksSession:
         return self._with_depth(self._finish_feature(cut, name, **defined), depth_mm)
 
     def add_boss_on_face(self, diameter_mm: float, face: str, x_mm: float, y_mm: float, z_mm: float,
-                         height_mm: float, name: str = "Boss") -> dict:
+                         height_mm: float, name: str = "Boss", from_edges: bool = False) -> dict:
         """Grow a round boss (standoff, peg) height_mm out of any planar face.
 
         Centred at 3D point (x, y, z) on the face; the face is found as for
-        add_hole_on_face. Add a blind hole in its top for a heat-set insert.
-        Volume added = pi * (d/2)^2 * height.
+        add_hole_on_face, and from_edges works as there. Add a blind hole in
+        its top for a heat-set insert. Volume added = pi * (d/2)^2 * height.
         """
         self._require_model()
         if diameter_mm <= 0 or height_mm <= 0:
             raise SolidWorksError(f"diameter and height must be > 0 (got {diameter_mm}, {height_mm}).")
-        defined = self._sketch_circle_on_face(face, diameter_mm, x_mm, y_mm, z_mm)
+        defined = self._sketch_circle_on_face(face, diameter_mm, x_mm, y_mm, z_mm, from_edges)
         return self._extrude_sketch(height_mm, name, defined, "Is the circle on the face?", role="height")
 
     def add_extruded_profile_on_face(self, points_mm: list, face: str, depth_mm: float,
