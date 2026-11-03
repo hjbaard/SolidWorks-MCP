@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.18.0] — 2026-11-03
 
 ### Changed
 - The Z-up template message and the README say how to get Y-up parts:

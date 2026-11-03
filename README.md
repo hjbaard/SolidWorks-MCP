@@ -35,12 +35,12 @@ it "looks about right".
   holes, counterbores, slots and pockets on any face; rounded polygon corners; ISO holes from the Hole Wizard; real ISO metric threads;
   fillets, chamfers, shells, patterns, mirrors, ribs, equations and materials. Assemblies
   with mates and interference checks. STEP/STL/3MF export and screenshots.
-  Engraved and embossed text. Work on existing parts: list, delete, suppress and reorder features; read, extrude and cut a person's sketches; import STEP. Colours per part or component. Joints with concentric and angle mates, checked over their range. Printability checks and dimensioned drawings. Planes at any offset or angle. Several bodies per part, combined and split. Variable fillets and full rounds. Free sketches with tangent arcs and splines. 87 tools in total.
+  Engraved and embossed text. Work on existing parts: list, delete, suppress and reorder features; read, extrude and cut a person's sketches; import STEP. Colours per part or component. Joints with concentric and angle mates, checked over their range. Printability checks and dimensioned drawings. Planes at any offset or angle. Several bodies per part, combined and split. Variable fillets and full rounds. Free sketches with tangent arcs and splines. 88 tools in total.
 - **It fails loud.** A call that cannot do what was asked returns
   `{ok: false, error}` with the cause, never silently wrong geometry.
 - **A fixed, typed tool surface.** There is no "run arbitrary code" tool; the
   agent can only do what the tools allow.
-- **Tested against real SolidWorks.** 724 tests; each feature's integration test
+- **Tested against real SolidWorks.** 730 tests; each feature's integration test
   compares the result with a hand calculation.
 - **Local.** It talks to your running SolidWorks over COM; the server itself
   makes no network calls.
@@ -204,6 +204,7 @@ The server speaks MCP over **stdio**.
 | `add_swept_pipe(path_mm, diameter_mm, bend_radius_mm, name, smooth)` | Sweep a round profile along a 2D path with rounded bends (pipes, tubes, rods), or along a spline through the points with `smooth=True` |
 | `add_swept_profile(profile_mm, path_mm, bend_radius_mm, name, corner_radii_mm)` | Sweep any closed cross-section along a 2D path (rails, gaskets, trim, channels); `corner_radii_mm` rounds the cross-section |
 | `add_lofted_solid(profiles_mm, heights_mm, name)` | Loft/blend 2+ polygon or round profiles on stacked parallel planes (transitions, adapters, a leg thick at the knee) |
+| `loft_sketches(sketches, name)` | Loft through 2+ closed sketches on any planes, in order, so a loft runs in any direction |
 | `add_rib(start_mm, end_mm, toward_mm, thickness_mm, z_mm, name)` | Straight rib / gusset in a plane parallel to Front at `z_mm`, grown toward `toward_mm` until it meets the part (L-bracket gussets) |
 | `add_extruded_profile(points_mm, depth_mm, name, corner_radii_mm, rotate_deg, about_mm, draft_deg, merge)` | Extrude any closed polygon `[[x,y],…]` (brackets, sections); `corner_radii_mm` rounds its corners with real sketch fillets, each radius a dimension; `rotate_deg` turns it about a pivot; `draft_deg` tapers its walls; `merge=False` keeps a separate body |
 | `add_plane(base, offset_mm, angle_deg, about, name)` | A reference plane offset from a plane, or turned about a model axis; its offset or angle a dimension; gives its origin and axes |
@@ -237,7 +238,7 @@ The server speaks MCP over **stdio**.
 | `set_equation(equation)` | Add a global equation or variable linking dims (e.g. `"W" = 40`, then `"width@Sketch1" = "W"`), or replace the one that sets the same name; names the features that fail to rebuild |
 | `set_equations(equations)` | Add or replace a list of equations with one rebuild |
 | `list_equations` / `delete_equation(equation)` | List the equations (value, global, broken) / delete one by name or index |
-| `slice_mesh(path, axis, heights_mm, frame)` | Cross-sections of an STL/3MF mesh as polygon loops, ready to use as profiles |
+| `slice_mesh(path, axis, heights_mm, frame)` | Cross-sections of an STL/3MF mesh as polygon loops, ready to use as profiles; needs no SolidWorks |
 | `compare_with_mesh(path, axis, heights_mm, frame, offset_mm)` | Compare the part's cross-sections with a reference mesh (area and extent differences) |
 | `read_sketch(name)` | A sketch read back in model coordinates: lines, arcs, circles, splines, its dimensions, fully defined or not |
 | `add_sketch(plane, start_mm, segments, name)` | Sketch an outline of lines, arcs and splines on any plane, fully defined: tangent where it flows, dimensioned from the origin |
