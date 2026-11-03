@@ -57,6 +57,30 @@ def delete_keeping_dependents(session, name):
     session._model.ForceRebuild3(False)
 
 
+def test_reference_planes_move_along_with_what_is_built_on_them(part):
+    """A plane made at the end of the tree would not move earlier ('did not
+    move'): it was built on a reference axis and another plane made after the
+    place. Eleven later features were thrown away and made again. The
+    reference geometry it stands on now moves along."""
+    part.add_box(40, 20, 10)
+    part.add_hole(4, 10, 10)
+    slant = part.add_plane("front", angle_deg=30, about="y", name="Slant")
+    part.add_plane("Slant", offset_mm=5, name="SlantOff")
+    moved = part.reorder_feature("SlantOff", "Hole")
+    order = moved["features"]
+    assert order.index("SlantOff") < order.index("Hole"), f"the plane did not move: {order}"
+    assert all(order.index(ref) < order.index("SlantOff") for ref in ("Axis Y", "Slant")), order
+    assert sorted(moved["moved_along"]) == ["Axis Y", "Slant"]
+    assert slant["plane"] == "Slant"
+
+
+def test_a_feature_built_on_a_later_solid_feature_still_refuses(part):
+    part.add_box(40, 20, 10)
+    hole = part.add_hole_on_face(4, "+z", 20, 10, 10, depth_mm=3)
+    with pytest.raises(SolidWorksError, match="built on"):
+        part.reorder_feature(hole["feature"], "BlockExtrude")
+
+
 def test_list_features_gives_the_history_in_tree_order(part):
     box_sketch, hole_sketch = block_with_hole_and_rounds(part)
 

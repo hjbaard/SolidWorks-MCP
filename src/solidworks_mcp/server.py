@@ -832,9 +832,10 @@ async def reorder_feature(name: str, before: str) -> dict:
 
     For a boss added last that filled holes cut earlier: build it at the end
     as usual, then move it before the first of those cuts, and they cut
-    through it again. Refused, the part as it was, when the feature is built
-    on something at or after that place. Returns the new order (features)
-    and the features that fail to rebuild (failing_features).
+    through it again. Reference planes and axes it is built on move along
+    (moved_along); refused, the part as it was, when it is built on another
+    feature at or after that place. Returns the new order (features) and the
+    features that fail to rebuild (failing_features).
     """
     return await _call(_session.reorder_feature, name, before)
 

@@ -4804,18 +4804,59 @@ class SolidWorksSession:
         # before the target's own sketch, so the two stay together in the tree
         place = min((f.Name for f in [target, *self._sub_features(target)] if f.Name in names), key=names.index)
         extension = binding.wrap(model.Extension, self._mod.IModelDocExtension)
+        along = []
         if not extension.ReorderFeature(feature.Name, place, SW_MOVE_BEFORE):
-            moved = self._goes_along(feature, with_children=False)
-            parents = {binding.wrap(p, self._mod.IFeature).Name for f in self._history() if f.Name in moved
-                       for p in (f.GetParents() or ())}
-            later = [n for n in names[names.index(place):] if n in parents and n not in moved]
-            raise SolidWorksError(f"SolidWorks did not move '{name}' before '{before}'"
-                                  + (f": it is built on {', '.join(later)}, which would come after it."
-                                     if later else ".") + " The part is as it was.")
+            later = self._later_parents(feature, place)
+            # reference planes and axes it stands on move along, theirs first
+            along = self._reference_chain(later, place)
+            if not later or along is None or not all(
+                    extension.ReorderFeature(ref, place, SW_MOVE_BEFORE) for ref in along) \
+                    or not extension.ReorderFeature(feature.Name, place, SW_MOVE_BEFORE):
+                self._restore_order(extension, names)
+                raise SolidWorksError(f"SolidWorks did not move '{name}' before '{before}'"
+                                      + (f": it is built on {', '.join(later)}, which would come after it."
+                                         if later else ".") + " The part is as it was.")
         rebuilt_ok = bool(model.ForceRebuild3(False))
-        return {"ok": True, "features": [f.Name for f in self._history()], "rebuild_ok": rebuilt_ok,
-                "failing_features": self._failing_features(),
+        return {"ok": True, "features": [f.Name for f in self._history()], "moved_along": along,
+                "rebuild_ok": rebuilt_ok, "failing_features": self._failing_features(),
                 "mass_properties": self.get_mass_properties()["mass_properties"]}
+
+    _REFERENCE_TYPES = ("RefPlane", "RefAxis", "RefPoint")
+
+    def _later_parents(self, feature, place: str) -> list:
+        """What `feature` (with what goes along with it) is built on that comes
+        at or after `place`, in tree order."""
+        names = [f.Name for f in self._history()]
+        moved = self._goes_along(feature, with_children=False)
+        parents = {binding.wrap(p, self._mod.IFeature).Name for f in self._history() if f.Name in moved
+                   for p in (f.GetParents() or ())}
+        return [n for n in names[names.index(place):] if n in parents and n not in moved]
+
+    def _reference_chain(self, later: list, place: str) -> list | None:
+        """The reference geometry to move before `place` so `later` comes with
+        it: those planes and axes and, first, what they stand on after the
+        place. None when one of them is no reference geometry (a boss, a cut),
+        which must stay where it is."""
+        by_name = {f.Name: f for f in self._history()}
+        chain = []
+        for name in later:
+            if by_name[name].GetTypeName2() not in self._REFERENCE_TYPES:
+                return None
+            deeper = self._reference_chain(self._later_parents(by_name[name], place), place)
+            if deeper is None:
+                return None
+            chain += [n for n in deeper + [name] if n not in chain]
+        return chain
+
+    def _restore_order(self, extension, names: list) -> None:
+        """Put the history back in the order `names` after a move that failed
+        halfway: each feature before the one that followed it."""
+        for name, following in reversed(list(zip(names, names[1:]))):
+            now = [f.Name for f in self._history()]
+            if now == names:
+                return
+            if name in now and following in now and now.index(name) > now.index(following):
+                extension.ReorderFeature(name, following, SW_MOVE_BEFORE)
 
     # --- meshes: slice a reference, compare the part with it ---------------------
 

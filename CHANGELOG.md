@@ -20,6 +20,10 @@ All notable changes to this project are documented here. This project follows
 - `loft_sketches(sketches)` lofts through closed sketches on any planes,
   in order (add_plane, then add_sketch on it, or a person's sketches), so a
   loft can run in any direction; add_lofted_solid stacks only along +Z.
+- `reorder_feature` moves the reference planes and axes a feature is
+  built on along with it (`moved_along`): a plane made at the end of the
+  tree would not move earlier, because the axis and plane it stood on came
+  after the place.
 
 ### Fixed
 - `slice_mesh` failed with "No running SolidWorks found" while SolidWorks
