@@ -13,6 +13,7 @@ All notable changes to this project are documented here. This project follows
   make it SOLIDWORKS' active document first. A person or another session
   working in the same SOLIDWORKS keeps the window they are in. Sketching,
   features, exports and screenshots still activate it.
+  `measure_distance` to an axis does too: it draws a temporary sketch line.
   The history snapshot every tool call takes, to undo a failed call, reads
   without activating too: it brought the part to the front on every call.
 

@@ -59,24 +59,57 @@ def test_read_sketch_leaves_the_active_document(part):
     _assert_leaves_active_document(part, "read_sketch", _sketch_name(part))
 
 
-@pytest.mark.parametrize("tool, args", [
-    ("list_components", ()),
-    ("check_interference", ()),
-    ("measure_distance", ("block_a", "block_b")),
-    ("get_assembly_bounding_box", ()),
-])
-def test_an_assembly_read_leaves_the_active_document(assembly, blocks, tool, args):
-    assembly.insert_component(blocks["block_a"])
-    assembly.insert_component(blocks["block_b"], 60, 0, 0)
-    _assert_leaves_active_document(assembly, tool, *args)
+def _two_blocks(assembly, blocks):
+    """block_a at the origin (x 0..40, y 0..20, z 0..10), block_b 100 mm along x."""
+    assembly.insert_component(blocks["block_a"], 0, 0, 0)
+    assembly.insert_component(blocks["block_b"], 100, 0, 0)
 
 
-def test_a_read_still_answers_for_the_current_document(part):
-    """Not activated, the tool still reads the server's own document, not the active one."""
+@pytest.mark.parametrize("tool, args, kwargs", [
+    ("list_components", (), {}),
+    ("check_interference", (), {}),
+    ("measure_distance", ("block_a", "block_b"), {}),
+    ("measure_distance", ("block_a",), {"point_mm": [-10, 50, 5]}),
+    ("get_assembly_bounding_box", (), {}),
+], ids=["list_components", "check_interference", "measure_distance", "measure_distance_to_a_point",
+        "get_assembly_bounding_box"])
+def test_an_assembly_read_leaves_the_active_document(assembly, blocks, tool, args, kwargs):
+    _two_blocks(assembly, blocks)
+    _assert_leaves_active_document(assembly, tool, *args, **kwargs)
+
+
+def test_measure_distance_to_an_axis_still_measures_with_another_document_active(assembly, blocks):
+    """The axis case draws a temporary sketch line, so it makes the assembly
+    active as any tool that writes; it must still measure right and clean up."""
+    _two_blocks(assembly, blocks)
+    other = _other_document(assembly)
+    try:
+        measured = assembly.run_guarded(assembly.measure_distance, "block_a", axis_mm=[[60, 0, 5], [0, 1, 0]])
+        # the line was drawn in the active, stilled assembly (bringing the other
+        # document back afterwards is the next step of #10)
+        assert _active_title(assembly) == assembly._model.GetTitle(), "the axis line was drawn in a document that is not active"
+        assert measured["distance_mm"] == pytest.approx(20, abs=1e-4)
+        helpers = [f.Name for f in assembly._iter_features() if f.GetTypeName2() == "3DProfileFeature"]
+        assert helpers == [], f"the helper line was left in the tree: {helpers}"
+    finally:
+        assembly._sw.CloseDoc(other)
+
+
+def test_a_part_read_still_answers_for_the_current_document(part):
+    """Not activated, the tools still read the server's own document, not the active one."""
     part.add_box(40, 20, 10)
     other = _other_document(part)
     try:
-        volume = part.run_guarded(part.get_mass_properties)["mass_properties"]["volume_mm3"]
-        assert volume == pytest.approx(8000)
+        assert part.run_guarded(part.get_mass_properties)["mass_properties"]["volume_mm3"] == pytest.approx(8000)
+        assert part.run_guarded(part.list_faces)["count"] == 6
     finally:
         part._sw.CloseDoc(other)
+
+
+def test_an_assembly_read_still_answers_for_the_current_document(assembly, blocks):
+    _two_blocks(assembly, blocks)
+    other = _other_document(assembly)
+    try:
+        assert assembly.run_guarded(assembly.list_components)["count"] == 2
+    finally:
+        assembly._sw.CloseDoc(other)

@@ -241,6 +241,18 @@ class SolidWorksSession:
             raise SolidWorksError("No active document. Call 'new_part' or 'new_assembly' first.")
         return self._model
 
+    @contextlib.contextmanager
+    def _writing(self):
+        """Within a read-only tool, a step that writes after all (the temporary
+        sketch line measure_distance measures to): the document is made the
+        active one and stilled first, as for every tool that writes."""
+        reading, self._reading = self._reading, 0
+        try:
+            self._require_model()
+            yield
+        finally:
+            self._reading = reading
+
     def _require_part(self):
         """The current document as an IPartDoc; raises if it is an assembly.
 
@@ -6949,7 +6961,8 @@ class SolidWorksSession:
         if component_b is not None:
             return self._distance_between(comp, self._component_by_name(asm, component_b))
         if line is not None:
-            return self._distance_to_line(comp, *line)
+            with self._writing():  # it draws a temporary sketch line
+                return self._distance_to_line(comp, *line)
         return self._distance_to_point(comp, [float(c) for c in point_mm])
 
     @staticmethod
