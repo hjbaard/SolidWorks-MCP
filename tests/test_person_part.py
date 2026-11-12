@@ -113,8 +113,8 @@ def test_read_sketch_reports_a_persons_sketch_as_drawn(drawn):
 
 
 def test_read_sketch_names_the_sketches_there_are(part):
-    part.add_box(40, 20, 10)
-    with pytest.raises(SolidWorksError, match="there are: Sketch1"):
+    sketch = part.add_box(40, 20, 10)["dimensions"]["width"].split("@")[1]  # 'Esquisse1' in French
+    with pytest.raises(SolidWorksError, match=f"there are: {sketch}"):
         part.read_sketch("Sketch9")
 
 

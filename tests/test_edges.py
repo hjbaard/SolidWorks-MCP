@@ -35,9 +35,10 @@ def test_edges_narrow_to_a_face_a_feature_a_box_and_a_length(part):
 
 def test_a_refused_fillet_names_the_edges_and_offers_the_ones_that_round(part):
     part.add_extruded_profile(L_PLATE, 10)
+    before = [f["name"] for f in part.list_features()["features"]]  # 'Esquisse1' in a French SolidWorks
     with pytest.raises(SolidWorksError, match=r'round together: edges="[\d,]+"') as refused:
         part.add_fillet(1, "+z:outline")
-    assert [f["name"] for f in part.list_features()["features"]] == ["Sketch1", "Extrude"], \
+    assert [f["name"] for f in part.list_features()["features"]] == before, \
         "every trial fillet should be gone again"
     keep = re.search(r'edges="([\d,]+)"', str(refused.value)).group(1)
     assert part.add_fillet(1, keep)["edges_filleted"] == len(keep.split(","))

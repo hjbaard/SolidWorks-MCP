@@ -5948,6 +5948,29 @@ class SolidWorksSession:
                   for corner in itertools.product(*zip(*corners_mm))]
         return [min(t[i] for t in turned) for i in range(3)], [max(t[i] for t in turned) for i in range(3)]
 
+    def _isometric_view_name(self) -> str:
+        """The part's standard isometric view by its name in SolidWorks' own
+        language ('*Isometric', '*Isométrique'): the standard view that looks
+        the way the isometric view does."""
+        model = self._model
+        screen = binding.wrap(model.ActiveView, self._mod.IModelView)
+
+        def orientation(name=""):
+            model.ShowNamedView2(name, VIEWS["iso"] if not name else -1)
+            return binding.wrap(screen.Orientation3, self._mod.IMathTransform).ArrayData[:9]
+
+        target = orientation()
+        return self._standard_view_like(list(model.GetModelViewNames() or ()), orientation, target)
+
+    @staticmethod
+    def _standard_view_like(names, orientation_of, target) -> str:
+        """The first standard view (its name starts with '*') whose rotation is
+        `target`; pure, unit-tested."""
+        for name in names:
+            if name.startswith("*") and all(abs(a - b) < 1e-3 for a, b in zip(orientation_of(name), target)):
+                return name
+        raise SolidWorksError(f"The part has no standard isometric view among {', '.join(names)}.")
+
     def make_drawing(self, path: str) -> dict:
         """A 2D drawing of the current part, saved as PDF or as an editable .slddrw.
 
@@ -5972,8 +5995,8 @@ class SolidWorksSession:
             sheets = binding.wrap(drawing, self._mod.IDrawingDoc)
             if not sheets.Create1stAngleViews2(part_path):
                 raise SolidWorksError("SolidWorks could not place the front, top and right views.")
-            iso = binding.wrap(sheets.CreateDrawViewFromModelView3(part_path, "*Isometric", 0.24, 0.16, 0.0),
-                               self._mod.IView)
+            iso = binding.wrap(sheets.CreateDrawViewFromModelView3(part_path, self._isometric_view_name(),
+                                                                   0.24, 0.16, 0.0), self._mod.IView)
             if iso is None:
                 raise SolidWorksError("SolidWorks could not place the isometric view.")
             iso.UseSheetScale = True

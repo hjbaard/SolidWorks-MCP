@@ -772,6 +772,23 @@ def test_check_printability_checks_its_input(s, arguments, message):
         s.check_printability(**arguments)
 
 
+_ISO = (0.707, 0, -0.707, -0.408, 0.816, -0.408, 0.577, 0.577, 0.577)
+
+
+def test_the_isometric_view_is_found_by_how_it_looks_not_by_name():
+    """make_drawing asked for '*Isometric', which a French SolidWorks calls
+    '*Isométrique': 'SolidWorks could not place the isometric view'."""
+    turned = {"*Face": (1, 0, 0, 0, 1, 0, 0, 0, 1), "*Dessus": (1, 0, 0, 0, 0, -1, 0, 1, 0),
+              "*Isométrique": _ISO, "Ma vue": _ISO}
+    assert SolidWorksSession._standard_view_like(list(turned), turned.get, _ISO) == "*Isométrique"
+
+
+def test_no_standard_view_like_it_is_refused():
+    with pytest.raises(SolidWorksError, match="isometric"):
+        SolidWorksSession._standard_view_like(["*Front", "Mine"], {"*Front": (1, 0, 0, 0, 1, 0, 0, 0, 1),
+                                                                    "Mine": _ISO}.get, _ISO)
+
+
 def test_a_drawing_is_a_pdf_or_a_slddrw(s):
     with pytest.raises(SolidWorksError, match="pdf or slddrw"):
         s.make_drawing("part.png")
