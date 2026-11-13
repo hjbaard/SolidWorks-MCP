@@ -8,6 +8,8 @@ server does (through run_guarded), and checks the active title did not move.
 Marked `solidworks` -- they need a running SolidWorks (auto-skipped otherwise).
 """
 
+import os
+
 import pytest
 
 from solidworks_mcp import binding
@@ -25,7 +27,10 @@ def _other_document(sw):
     """A new part opened behind the server's back: it becomes SolidWorks'
     active document while the server's current document stays its own."""
     template = sw._sw.GetUserPreferenceStringValue(SW_PREF_DEFAULT_TEMPLATE_PART)
-    other = binding.wrap(sw._sw.NewDocument(template, 0, 0, 0), sw._mod.IModelDoc2)
+    # a 3DEXPERIENCE install may name a template that is no file ('~BLANK_PART_TEMPLATE.prtdot'),
+    # where NewDocument returns None: new_part falls back to NewPart as well
+    made = sw._sw.NewDocument(template, 0, 0, 0) if os.path.isfile(template) else sw._sw.NewPart()
+    other = binding.wrap(made, sw._mod.IModelDoc2)
     assert other is not None, "could not open a second document"
     title = other.GetTitle()
     assert _active_title(sw) == title

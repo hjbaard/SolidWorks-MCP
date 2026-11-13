@@ -216,7 +216,12 @@ class SolidWorksSession:
         and would after any switch of window in SolidWorks itself.
         """
         if self._reading:
-            return self._current_model()
+            # not activated, but kept still all the same: the guard against
+            # SP4.0's random crash in slduiu.dll is the stilled view, not activation
+            model = self._current_model()
+            if self._quiet_depth:
+                self._quiet(model)
+            return model
         if self._model is None:
             raise SolidWorksError("No active document. Call 'new_part' or 'new_assembly' first.")
         title = self._model.GetTitle()

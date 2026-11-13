@@ -1106,3 +1106,19 @@ def test_the_wall_check_stops_in_time_and_says_how_much_it_measured(s, monkeypat
     assert len(cast) < 10 and walls["rays"]["measured"] == sum(cast) < walls["rays"]["planned"], walls["rays"]
     assert walls["thinnest_mm"] == pytest.approx(2) and walls["faces"] == []
     assert "Stopped after" in walls["rays"]["note"]
+
+
+class _Document:
+    def GetTitle(self):
+        return "Part7"
+
+
+def test_a_read_keeps_the_view_still_without_activating(s, monkeypatch):
+    """Reads stopped making their document the active one (#10), and with that
+    also stopped stilling it: the guard against SOLIDWORKS 2026 SP4.0's random
+    crash in slduiu.dll. They must still be stilled, only not activated."""
+    stilled = []
+    monkeypatch.setattr(s, "_quiet", stilled.append)
+    s._model, s._quiet_depth, s._reading = _Document(), 1, 1  # inside run_guarded, in a read
+    assert s._require_model() is s._model  # no SolidWorks to activate in: it would fail
+    assert stilled == [s._model], "a read left its document's view drawing"
