@@ -11,6 +11,7 @@ green by scripts/m1_block.py and scripts/m2_parametric.py.
 
 import contextlib
 import difflib
+import functools
 import html
 import itertools
 import json
@@ -150,6 +151,22 @@ from .sketch_constraints import MAX_DIMENSIONED_VERTICES, SketchDefiner
 from .units import deg_to_rad, m_to_mm, mm_to_m
 
 
+def _reads_only(method):
+    """Mark a tool that only reads the current document. It is not made
+    SolidWorks' active document first, so a person or another session working
+    in SolidWorks keeps the window they are in. Tools that sketch, add
+    features, export or take screenshots still activate it (_require_model).
+    """
+    @functools.wraps(method)
+    def tool(self, *args, **kwargs):
+        self._reading += 1
+        try:
+            return method(self, *args, **kwargs)
+        finally:
+            self._reading -= 1
+    return tool
+
+
 class SolidWorksSession:
     """Holds the SolidWorks connection and the current part document."""
 
@@ -158,6 +175,7 @@ class SolidWorksSession:
         self._mod = None      # generated wrapper module
         self._model = None    # current IModelDoc2
         self._quiet_depth = 0  # inside _quiet_ui
+        self._reading = 0      # inside a tool that only reads (_reads_only)
         self._to_wake = []     # (document, [(object, property)]) to switch back on after it
 
     # --- connection -----------------------------------------------------------
@@ -197,6 +215,8 @@ class SolidWorksSession:
         open_part returned a part that was already open behind another document,
         and would after any switch of window in SolidWorks itself.
         """
+        if self._reading:
+            return self._current_model()
         if self._model is None:
             raise SolidWorksError("No active document. Call 'new_part' or 'new_assembly' first.")
         title = self._model.GetTitle()
@@ -213,6 +233,25 @@ class SolidWorksSession:
                 raise SolidWorksError(f"'{title}' is editing one of its parts and would not go back to editing "
                                       "the assembly; choose Edit Assembly in SolidWorks.")
         return self._model
+
+    def _current_model(self):
+        """The current document as it is, without making it SolidWorks' active one:
+        enough to read it (features, dimensions, faces, mass properties)."""
+        if self._model is None:
+            raise SolidWorksError("No active document. Call 'new_part' or 'new_assembly' first.")
+        return self._model
+
+    @contextlib.contextmanager
+    def _writing(self):
+        """Within a read-only tool, a step that writes after all (the temporary
+        sketch line measure_distance measures to): the document is made the
+        active one and stilled first, as for every tool that writes."""
+        reading, self._reading = self._reading, 0
+        try:
+            self._require_model()
+            yield
+        finally:
+            self._reading = reading
 
     def _require_part(self):
         """The current document as an IPartDoc; raises if it is an assembly.
@@ -4124,6 +4163,7 @@ class SolidWorksSession:
         self._sw.CommandInProgress = bool(flag)
         return before
 
+    @_reads_only  # before every tool call: reading the history needs no activation
     def _history_snapshot(self):
         """(title, history names) of the current part, or None without one."""
         if self._model is None or int(self._model.GetType()) != SW_DOC_PART:
@@ -4403,6 +4443,7 @@ class SolidWorksSession:
                 "failing_features": self._failing_features(),
                 "mass_properties": self.get_mass_properties()["mass_properties"]}
 
+    @_reads_only
     def list_equations(self) -> dict:
         """The equations and global variables in order: index, equation, the name
         it sets, its value and whether it is a global variable. `broken` marks
@@ -4497,6 +4538,7 @@ class SolidWorksSession:
                 failing.append({"name": feat.Name, "type": feat.GetTypeName2(), **self._error_entry(code, warning)})
         return failing
 
+    @_reads_only
     def list_dimensions(self, contains: str | None = None) -> dict:
         """Every dimension in the part, feature by feature, as set_dimension takes it.
 
@@ -4551,6 +4593,7 @@ class SolidWorksSession:
         names = sorted({s.Name for s in sketches})
         raise SolidWorksError(f"No sketch '{name}' in the part (there are: {', '.join(names) or 'none'}).")
 
+    @_reads_only
     def read_sketch(self, name: str) -> dict:
         """A sketch of the current part read back in MODEL coordinates (mm): its
         lines, arcs, circles and splines (construction ones marked), its
@@ -4733,6 +4776,7 @@ class SolidWorksSession:
     def _is_suppressed(feat) -> bool:
         return bool(feat.IsSuppressed2(SW_THIS_CONFIGURATION, None)[0])
 
+    @_reads_only
     def list_features(self) -> dict:
         """The part's modelling history in tree order: name, type, suppressed.
 
@@ -5159,6 +5203,7 @@ class SolidWorksSession:
 
     # --- measurement ----------------------------------------------------------
 
+    @_reads_only
     def get_mass_properties(self) -> dict:
         """Volume/mass/area/centre-of-mass plus bounding box, all in SI->mm, forced SI."""
         model = self._require_model()
@@ -5198,6 +5243,7 @@ class SolidWorksSession:
             return self._joined_box([self._component_box(c) for c in self._components(assembly)])
         return self._joined_box([self._body_box(body) for body in self._part_bodies()])
 
+    @_reads_only
     def get_bounding_box(self) -> dict:
         self._require_model()
         return {"ok": True, "bounding_box_mm": self._bounding_box()}
@@ -5211,6 +5257,7 @@ class SolidWorksSession:
                 return axis
         return None
 
+    @_reads_only
     def list_faces(self, component: str | None = None) -> dict:
         """Inspect faces: index, planar?, normal, area, centre; a cylindrical face
         also gives its axis, radius and a point on the axis (a hole's centre).
@@ -5279,6 +5326,7 @@ class SolidWorksSession:
         point = [o + along * a for o, a in zip(origin, axis)]
         return {"axis": axis, "point_mm": point, "radius_mm": round(m_to_mm(params[6]), 4)}
 
+    @_reads_only
     def list_edges(self, face=None, feature: str | None = None, within_mm=None,
                    min_length_mm: float | None = None) -> dict:
         """Inspect the solid body's edges: index, type, length and ends (a full
@@ -5366,6 +5414,7 @@ class SolidWorksSession:
         bodies = binding.wrap(self._model, self._mod.IPartDoc).GetBodies2(SW_BODY_SOLID, False) or ()
         return [binding.wrap(body, self._mod.IBody2) for body in bodies]
 
+    @_reads_only
     def list_bodies(self) -> dict:
         """The part's solid bodies: name, volume and bounding box. A part holds
         several after merge=False or split_body; combine_bodies joins them."""
@@ -5446,6 +5495,7 @@ class SolidWorksSession:
 
     _MAX_WALL_SAMPLES = 100_000  # rays per check; beyond that the samples spread out
 
+    @_reads_only
     def check_printability(self, up: str = "+z", overhang_deg: float = 45.0,
                            min_wall_mm: float | None = None) -> dict:
         """Check the current part for 3D printing, built along `up`.
@@ -6409,6 +6459,7 @@ class SolidWorksSession:
             self._fix_component(asm, comp)
         return {"ok": True, "component": self._component_entry(comp)}
 
+    @_reads_only
     def list_components(self) -> dict:
         """List the components (name, path, fixed, placement, bounding box) and
         the mates: name, SolidWorks type, the dimension of a distance or angle
@@ -6876,6 +6927,7 @@ class SolidWorksSession:
 
     # --- interference ---------------------------------------------------------
 
+    @_reads_only
     def check_interference(self) -> dict:
         """Find components whose solids overlap; volumes in mm^3, per pair.
 
@@ -6912,6 +6964,7 @@ class SolidWorksSession:
             entry["volume_mm3"] = round(entry["volume_mm3"], 4)
         return {"ok": True, "count": len(result), "interferences": result}
 
+    @_reads_only
     def measure_distance(self, component_a: str, component_b: str | None = None,
                          point_mm: list | None = None, axis_mm: list | None = None) -> dict:
         """The smallest distance (mm) from a component of the current assembly to
@@ -6931,7 +6984,8 @@ class SolidWorksSession:
         if component_b is not None:
             return self._distance_between(comp, self._component_by_name(asm, component_b))
         if line is not None:
-            return self._distance_to_line(comp, *line)
+            with self._writing():  # it draws a temporary sketch line
+                return self._distance_to_line(comp, *line)
         return self._distance_to_point(comp, [float(c) for c in point_mm])
 
     @staticmethod
@@ -7194,6 +7248,7 @@ class SolidWorksSession:
             return tuple(sum(back[i][row] * offset[i] for i in range(3)) / size for row in range(3))  # R^T: the inverse
         return place
 
+    @_reads_only
     def get_assembly_bounding_box(self) -> dict:
         """Bounding box of the whole assembly (min/max/size in mm)."""
         self._require_assembly()

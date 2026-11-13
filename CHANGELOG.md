@@ -3,6 +3,20 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- Tools that only read the current document (list_features, list_dimensions,
+  read_sketch, list_equations, list_faces, list_edges, list_bodies,
+  get_mass_properties, get_bounding_box, check_printability, list_components,
+  check_interference, measure_distance, get_assembly_bounding_box) no longer
+  make it SOLIDWORKS' active document first. A person or another session
+  working in the same SOLIDWORKS keeps the window they are in. Sketching,
+  features, exports and screenshots still activate it.
+  `measure_distance` to an axis does too: it draws a temporary sketch line.
+  The history snapshot every tool call takes, to undo a failed call, reads
+  without activating too: it brought the part to the front on every call.
+
 ## [0.19.0] — 2026-11-04
 
 ### Changed
