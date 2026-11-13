@@ -177,6 +177,8 @@ class SolidWorksSession:
         self._quiet_depth = 0  # inside _quiet_ui
         self._reading = 0      # inside a tool that only reads (_reads_only)
         self._to_wake = []     # (document, [(object, property)]) to switch back on after it
+        self._guard_depth = 0  # inside run_guarded
+        self._previous_active = None  # title of the document a call took the front from
 
     # --- connection -----------------------------------------------------------
 
@@ -214,6 +216,10 @@ class SolidWorksSession:
         relation ('refused a horizontal relation'); that happened after
         open_part returned a part that was already open behind another document,
         and would after any switch of window in SolidWorks itself.
+
+        When that takes the front from another document, its title is noted:
+        run_guarded brings it back at the end of the call. A call that finds its
+        document active already switches nothing, and brings nothing back.
         """
         if self._reading:
             # not activated, but kept still all the same: the guard against
@@ -227,6 +233,8 @@ class SolidWorksSession:
         title = self._model.GetTitle()
         active = binding.wrap(self._sw.ActiveDoc, self._mod.IModelDoc2)
         if active is None or active.GetTitle() != title:
+            if active is not None and self._previous_active is None:
+                self._previous_active = active.GetTitle()
             self._sw.ActivateDoc3(title, False, SW_DONT_REBUILD_ACTIVE_DOC, 0)
         if self._quiet_depth:
             self._quiet(self._model)
@@ -385,6 +393,7 @@ class SolidWorksSession:
             raise SolidWorksError(f"No open document '{title}' (open: {listed}).")
         self._model = matches[0]
         self._require_model()  # SolidWorks' active document too
+        self._previous_active = None  # asked for: it stays in front after the call
         return {"ok": True, "current": self._model.GetTitle(), **self._document_entry(self._model)}
 
     def _close_active_document(self) -> dict:
@@ -4074,23 +4083,52 @@ class SolidWorksSession:
         Every MCP tool call goes through here, so a refused or failed call leaves
         the part as it was: no stray sketch, which would also count in the
         bounding box. A tool that switched documents is not rolled back.
+
+        A call that had to bring its document to the front gives it back
+        afterwards, also when it failed: a person or another session working in
+        SolidWorks keeps the window they were in.
         """
-        self._reattach_if_gone()
-        snapshot = self._history_snapshot()
-        busy = self._command_in_progress(True)
+        if not self._guard_depth:
+            self._previous_active = None
+        self._guard_depth += 1
         try:
-            with self._quiet_ui():
-                return fn(*args, **kwargs)
-        except SolidWorksError as exc:
-            left = self._roll_back(snapshot)
-            if left:
-                raise SolidWorksError(f"{exc} Could not remove what the call added: {', '.join(left)}.") from exc
-            raise
-        except Exception:
-            self._roll_back(snapshot)
-            raise
+            self._reattach_if_gone()
+            snapshot = self._history_snapshot()
+            busy = self._command_in_progress(True)
+            try:
+                with self._quiet_ui():
+                    return fn(*args, **kwargs)
+            except SolidWorksError as exc:
+                left = self._roll_back(snapshot)
+                if left:
+                    raise SolidWorksError(f"{exc} Could not remove what the call added: {', '.join(left)}.") from exc
+                raise
+            except Exception:
+                self._roll_back(snapshot)
+                raise
+            finally:
+                self._command_in_progress(busy)
         finally:
-            self._command_in_progress(busy)
+            self._guard_depth -= 1
+            if not self._guard_depth:
+                self._bring_back_previous_active()
+
+    def _bring_back_previous_active(self) -> None:
+        """Make the document a call took the front from the active one again,
+        when it is still open and not in front already. Best-effort: a failure
+        here must not hide what the tool returned or raised."""
+        title, self._previous_active = self._previous_active, None
+        if title is None or self._sw is None:
+            return
+        try:
+            active = binding.wrap(self._sw.ActiveDoc, self._mod.IModelDoc2)
+            if active is not None and active.GetTitle() == title:
+                return
+            if not any(d.GetTitle() == title for d in self._open_documents()):
+                return  # closed during the call
+            self._sw.ActivateDoc3(title, False, SW_DONT_REBUILD_ACTIVE_DOC, 0)
+        except pythoncom.com_error:
+            pass
 
     # A link into a SolidWorks that is gone (restarted or closed): RPC server
     # unavailable, RPC call failed, object disconnected from its clients
