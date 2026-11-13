@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.20.0] — 2026-11-13
 
 ### Changed
 - Tools that only read the current document (list_features, list_dimensions,
@@ -16,6 +16,14 @@ All notable changes to this project are documented here. This project follows
   `measure_distance` to an axis does too: it draws a temporary sketch line.
   The history snapshot every tool call takes, to undo a failed call, reads
   without activating too: it brought the part to the front on every call.
+  A read still keeps its document's view still while it works, the guard
+  against SOLIDWORKS 2026 SP4.0's random crash in its user interface.
+
+### Fixed
+- `make_drawing` could not place the isometric view on a SOLIDWORKS in
+  another language: it asked for the view named `*Isometric`, which a
+  French SOLIDWORKS calls `*Isométrique`. It now picks the standard view
+  that looks isometric, whatever its name.
 
 ## [0.19.0] — 2026-11-04
 
