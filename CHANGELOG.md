@@ -3,6 +3,17 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- A tool call that had to make its document SOLIDWORKS' active one (to
+  sketch, add a feature, export or take a screenshot while another document
+  was in front) brings that other document back to the front when it is done,
+  also when the call failed. A person or another session working in the same
+  SOLIDWORKS finds the window they were in. A call whose document was in front
+  already switches nothing. `activate_document` keeps its document in front,
+  as asked; `new_part`, `open_part` and the like leave the new document in front.
+
 ## [0.20.0] — 2026-11-13
 
 ### Changed

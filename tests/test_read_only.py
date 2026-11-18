@@ -85,18 +85,27 @@ def test_an_assembly_read_leaves_the_active_document(assembly, blocks, tool, arg
 
 def test_measure_distance_to_an_axis_still_measures_with_another_document_active(assembly, blocks):
     """The axis case draws a temporary sketch line, so it makes the assembly
-    active as any tool that writes; it must still measure right and clean up."""
+    active as any tool that writes, then gives the front back; it must still
+    measure right and clean up."""
     _two_blocks(assembly, blocks)
     other = _other_document(assembly)
+    drawing_in = []
+    draw = assembly._distance_to_line
+
+    def spy(*args):
+        drawing_in.append(_active_title(assembly))
+        return draw(*args)
+
+    assembly._distance_to_line = spy
     try:
         measured = assembly.run_guarded(assembly.measure_distance, "block_a", axis_mm=[[60, 0, 5], [0, 1, 0]])
-        # the line was drawn in the active, stilled assembly (bringing the other
-        # document back afterwards is the next step of #10)
-        assert _active_title(assembly) == assembly._model.GetTitle(), "the axis line was drawn in a document that is not active"
+        assert drawing_in == [assembly._model.GetTitle()], "the axis line was drawn in a document that is not active"
+        assert _active_title(assembly) == other, "the assembly kept the front after the measurement"
         assert measured["distance_mm"] == pytest.approx(20, abs=1e-4)
         helpers = [f.Name for f in assembly._iter_features() if f.GetTypeName2() == "3DProfileFeature"]
         assert helpers == [], f"the helper line was left in the tree: {helpers}"
     finally:
+        del assembly._distance_to_line
         assembly._sw.CloseDoc(other)
 
 
