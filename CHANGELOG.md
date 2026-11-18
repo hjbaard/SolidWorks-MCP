@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.21.0] — 2026-11-18
 
 ### Changed
 - A tool call that had to make its document SOLIDWORKS' active one (to
