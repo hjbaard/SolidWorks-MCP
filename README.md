@@ -120,6 +120,11 @@ may still change. See [CHANGELOG.md](https://github.com/hjbaard/SolidWorks-MCP/b
 - **Start with the selftest**: `uvx solidworks-mcp --selftest` shows your
   SolidWorks release, language and templates, and which tool areas work. Add
   its output to a [bug report](https://github.com/hjbaard/SolidWorks-MCP/issues/new?template=bug_report.yml).
+- **Drawings get slower and come out without dimensions, or SolidWorks
+  freezes, after many tool calls** — switch off *Enhanced graphics
+  performance* (Tools > Options > System Options > Performance) and restart
+  SolidWorks. With it on, `make_drawing` slowed from 8 to 16 s over a series
+  of calls and then placed 0 dimensions; with it off it stayed at 7 s.
 - **"No running SolidWorks found" / connection fails** — SolidWorks must be
   *running* before you start the server or run a script; it attaches to the active
   instance via `GetActiveObject` and does not launch one.
